@@ -19,10 +19,11 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 ## Status
 
 | Phase | Content | State |
-|---|---|---|
+| --- | --- | --- |
 | 1.1 | Project skeleton: device helper, seeding, configs, environment check, tests | done |
-| 1.2 | MNIST digit pool: fixed splits, resized digits, ink sprites | in review |
-| 1.3 to 1.11 | Data generator (trajectories, occluder, conditions, rendering, storage, validation, benchmarks) | next |
+| 1.2 | MNIST digit pool: fixed splits, resized digits, ink sprites | done |
+| 1.3 | Sequence spec and bouncing trajectories built from an anchor frame | done |
+| 1.4 to 1.11 | Data generator (occluder, conditions, rendering, storage, validation, benchmarks) | next |
 | 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -41,12 +42,13 @@ Every command below runs from the project root with `peekaboo` active. The packa
 ## Commands
 
 | Command | What it does | Expected result |
-|---|---|---|
+| --- | --- | --- |
 | `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.env_check` | Lists the required packages and the selected device, then runs the PredNet operations forward and backward on that device. Setting the variable to 0 makes any operation that MPS does not support fail loudly instead of silently running on the CPU. | Every package `ok`, then `op check ok`. Exit code 0. |
 | `python -m scripts.env_check --device cpu` | Same check, forced on the CPU (also accepts `cuda` or `mps`). | `op check ok`. |
 | `python -m pytest` | Runs all unit tests in `tests/`. | All tests pass. |
 | `python -m pytest tests/test_seeding.py -v` | Runs one test file with one line per test. | All tests pass. |
 | `python -m scripts.prepare_mnist` | Downloads MNIST into `data/mnist/` (first run only), builds the train, val, and test digit pools, prints their statistics as JSON lines, checks that train and val share no digit, and saves a sheet of val sprites (one row per label) to `figures/mnist_pool.png`. Options: `--box-size`, `--ink-threshold`, `--val-size`, `--holdout-seed`, `--no-download`, `--sheet`. | Three JSON lines with 55000, 5000, and 10000 digits, then `train/val overlap: 0 digits, train + val = 60000`. |
+| `python -m scripts.plot_trajectories` | Samples 12 random trajectories with the motion settings of `configs/data/base.yaml` and saves their paths to `figures/trajectories.png`, with wall bounces (red crosses) and anchor frames (black stars). Options: `--config`, `--n`, `--seed`, `--out`. | `saved .../figures/trajectories.png`. Paths stay inside the frame and mirror off the borders. |
 
 ## Modules
 
@@ -86,19 +88,43 @@ The digits used by the generator. Test sequences only use digits from the MNIST 
 - `DigitPool`: all sprites of one split, padded into one array, with their MNIST index, label, ink height and width, total ink, and intensity weighted centroid. The centroid is the reference point for the ground truth position of the digit. `pool.sprite(i)` returns one tight sprite, `pool.sample(rng)` draws one digit.
 - `build_digit_pool(split)`: loads MNIST through torchvision and builds the pool of a split. `pool_summary(pool)` gives label counts and ink size percentiles.
 
+### `peekaboo/data/trajectory.py`
+
+Integer motion of the digit, with bounces off the frame borders. Positions are the top left corner of the tight ink sprite, so the ink itself touches the border when it bounces.
+
+- Trajectories are built **outward from an anchor frame**: the state (position and velocity) is fixed at one frame, for example the first fully hidden frame, and the motion is extended forward and backward in time. This lets the generator place the occlusion event first and derive the rest of the sequence from it.
+- Each axis is uniform motion on an unfolded line, folded back into the allowed range. Bounces are therefore exactly reversible: rebuilding a trajectory from its state at any other frame gives the same trajectory. A sprite resting on a wall always has its velocity pointing inward.
+- `Bounds.for_sprite(frame_size, height, width)`: allowed range of the top left corner for a sprite of that ink size.
+- `build_trajectory(anchor_frame, anchor_pos, anchor_vel, seq_len, bounds)`: returns a `Trajectory` with per frame `positions`, `velocities` (velocity leaving each frame), and `bounced` (a wall bounce between the previous frame and this one), all in (y, x) order.
+- `continue_from(trajectory, frame, pos, vel, bounds)`: keeps the past and restarts from a new state at `frame`. Surprise events (direction reversal, speed change, teleport) will use it.
+- `has_bounce(trajectory, first, last)`: checks the no bounce windows around the occlusion.
+- `sample_velocity(rng, x_speeds, y_velocities)`: draws an integer velocity, with a random sign for vx.
+
+### `peekaboo/data/spec.py`
+
+`SequenceSpec` is the compact, complete description of one sequence: identity and seed, digit, per frame positions and velocities, whether the digit is present (it disappears after a "vanish" surprise), occluder bar, blackout frames, condition, and event frames (occlusion onset, expected and actual reappearance, surprise). Rendering a spec is deterministic, so test sets can be stored as specs. `metadata()` gives a flat row for a metadata table, and `to_dict()` and `from_dict()` convert to and from JSON.
+
 ### `scripts/prepare_mnist.py`
 
 Downloads MNIST and reports on the three pools (see the Commands table). Look at `figures/mnist_pool.png` to check the resized digits.
+
+### `scripts/plot_trajectories.py`
+
+Visual check of the motion model (see the Commands table).
 
 ### `scripts/env_check.py`
 
 The environment report described in the Commands table.
 
+## Configs
+
+- `configs/data/base.yaml`: generator settings shared by all splits. Frame size 64, sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the occluder, 4 frames kept after it leaves, and no wall bounce in the 4 frames around entry and exit. Later tasks add the occluder and condition sections.
+
 ## Conventions
 
 - **Device agnostic.** The code runs on CUDA, MPS, or CPU. The device comes from `get_device`. Only float32 reaches the GPU, and CUDA only or MPS only operations are avoided.
 - **Reproducible.** Fixed seeds, one config file per experiment, and every run saves a copy of its config next to its results in `runs/`.
-- **Style.** American English, type annotations on every function, a short docstring per function.
+- **Style.** Type annotations on every function, a short docstring per function.
 
 ## Repository layout
 
@@ -110,9 +136,14 @@ peekaboo/           the package
   paths.py          standard locations
   data/             synthetic occlusion data
     mnist_pool.py   MNIST splits and digit sprites
+    trajectory.py   bouncing integer trajectories from an anchor frame
+    spec.py         SequenceSpec, the description of one sequence
 scripts/            command line entry points
   env_check.py      environment report
   prepare_mnist.py  MNIST download and pool report
+  plot_trajectories.py  visual check of the motion model
+configs/            one config file per experiment
+  data/base.yaml    generator settings
 tests/              unit tests (pytest)
 environment.yml     conda environment "peekaboo"
 pyproject.toml      pytest settings (nothing to install)
