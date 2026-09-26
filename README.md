@@ -23,7 +23,8 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.1 | Project skeleton: device helper, seeding, configs, environment check, tests | done |
 | 1.2 | MNIST digit pool: fixed splits, resized digits, ink sprites | done |
 | 1.3 | Sequence spec and bouncing trajectories built from an anchor frame | done |
-| 1.4 to 1.11 | Data generator (occluder, conditions, rendering, storage, validation, benchmarks) | next |
+| 1.4 | Occluder bar: exact visible fractions and a placement solver for a target occlusion duration | in review |
+| 1.5 to 1.11 | Data generator (conditions, rendering, storage, validation, benchmarks) | next |
 | 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -49,6 +50,7 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m pytest tests/test_seeding.py -v` | Runs one test file with one line per test. | All tests pass. |
 | `python -m scripts.prepare_mnist` | Downloads MNIST into `data/mnist/` (first run only), builds the train, val, and test digit pools, prints their statistics as JSON lines, checks that train and val share no digit, and saves a sheet of val sprites (one row per label) to `figures/mnist_pool.png`. Options: `--box-size`, `--ink-threshold`, `--val-size`, `--holdout-seed`, `--no-download`, `--sheet`. | Three JSON lines with 55000, 5000, and 10000 digits, then `train/val overlap: 0 digits, train + val = 60000`. |
 | `python -m scripts.plot_trajectories` | Samples 12 random trajectories with the motion settings of `configs/data/base.yaml` and saves their paths to `figures/trajectories.png`, with wall bounces (red crosses) and anchor frames (black stars). Options: `--config`, `--n`, `--seed`, `--out`. | `saved .../figures/trajectories.png`. Paths stay inside the frame and mirror off the borders. |
+| `python -m scripts.check_occluder` | For every cell (k, speed) of `configs/data/base.yaml`, places the occluder for 200 random val digits and prints one line per cell: share of digits placed, mean attempts, mean ink width of the placed digits (compare with the pool mean on the first line to spot a bias), bar width range (min, median, max), bar position range, onset frame range, and share of fully occluded frames. Saves space time diagrams to `figures/occluder_examples.png`. Needs MNIST (run `prepare_mnist` first). Options: `--config`, `--split`, `--n`, `--seed`, `--out`. | One line per cell, placed close to 100% except possibly the cells k=8 at v=4 and k=12, where the widest digits do not fit. |
 
 ## Modules
 
@@ -94,11 +96,27 @@ Integer motion of the digit, with bounces off the frame borders. Positions are t
 
 - Trajectories are built **outward from an anchor frame**: the state (position and velocity) is fixed at one frame, for example the first fully hidden frame, and the motion is extended forward and backward in time. This lets the generator place the occlusion event first and derive the rest of the sequence from it.
 - Each axis is uniform motion on an unfolded line, folded back into the allowed range. Bounces are therefore exactly reversible: rebuilding a trajectory from its state at any other frame gives the same trajectory. A sprite resting on a wall always has its velocity pointing inward.
-- `Bounds.for_sprite(frame_size, height, width)`: allowed range of the top left corner for a sprite of that ink size.
+- `Bounds.for_sprite(frame_height, frame_width, height, width)`: allowed range of the top left corner for a sprite of that ink size.
 - `build_trajectory(anchor_frame, anchor_pos, anchor_vel, seq_len, bounds)`: returns a `Trajectory` with per frame `positions`, `velocities` (velocity leaving each frame), and `bounced` (a wall bounce between the previous frame and this one), all in (y, x) order.
 - `continue_from(trajectory, frame, pos, vel, bounds)`: keeps the past and restarts from a new state at `frame`. Surprise events (direction reversal, speed change, teleport) will use it.
 - `has_bounce(trajectory, first, last)`: checks the no bounce windows around the occlusion.
 - `sample_velocity(rng, x_speeds, y_velocities)`: draws an integer velocity, with a random sign for vx.
+
+### `peekaboo/data/occluder.py`
+
+The occluder is a full height vertical gray bar, drawn on top of the digit. This module measures what the bar hides and places it so that the digit stays fully hidden for exactly k frames.
+
+- `visible_fraction(column_ink(sprite), x_positions, bar_left, bar_width)`: fraction of the digit's ink that the bar leaves visible, per frame. Since the bar covers whole columns, this is exact and cheap. It is computed on the ink, not on the digit's bounding box, as the plan requires.
+- `visibility_states(fractions, thresholds)`: each frame is *occluded* (at most 2% of the ink visible), *visible* (at least 95%), or *partial*.
+- `find_crossing(fractions, thresholds, frame)`: the occlusion episode that contains `frame`, as a `CrossingEvent` with four key frames: **entry** (the bar first covers ink), **onset** (first fully occluded frame), **reappear** (first frame with visible ink again), and **exit** (last frame with covered ink). `event.k = reappear - onset`.
+- `plan_crossing(rng, sprite, k, settings)`: the placement solver. It works event first. It draws a speed, a direction, and an onset frame. It sizes the bar so the digit is hidden for exactly k frames (width = ink width + (k - 1) x speed + a random sub step offset), places the bar at random, puts the digit at the bar edge at the onset frame, and builds the trajectory outward from there. It then **measures** k on the actual ink and keeps the placement only if all rules hold. Otherwise it tries again, so placements are uniform among the valid ones. The rules, over the analysis window (8 frames before entry to 4 frames after exit):
+  - measured k equals the target;
+  - the digit is fully visible for the 8 frames before entry and the 4 frames after exit;
+  - no wall bounce on x from 2 frames before entry to 2 frames after exit, so the digit leaves on the far side, and no bounce on y in the 2 frames around entry and exit (a vertical bounce while hidden is allowed);
+  - other contacts with the bar are allowed outside the window (`allow_contact_outside_window`).
+- `CrossingSettings.from_config(config)`: the solver settings from `configs/data/base.yaml`.
+
+**Why the frames are 96 px wide.** Along x, the digit needs room to approach the bar, to cross it, and to leave it. With ink width w, speed v, and occlusion duration k, the budget is about (k + 4.5) x v <= frame width - 3w. At 64 px, the widest digits could not be hidden for more than 1 frame at 4 px/frame, and the bar would sit almost always at the same place. At 96 px, every digit fits every cell of the grid except the widest ones (16 px, about 1% of digits) at k = 8 with v = 4 and at k = 12.
 
 ### `peekaboo/data/spec.py`
 
@@ -112,13 +130,17 @@ Downloads MNIST and reports on the three pools (see the Commands table). Look at
 
 Visual check of the motion model (see the Commands table).
 
+### `scripts/check_occluder.py`
+
+Report on the placement solver with real digits, and space time diagrams: x horizontally, time downward, the bar as a gray band, and the ink extent of each frame in green (visible), orange (partial), or red (occluded), with the entry, onset, reappear, and exit frames marked.
+
 ### `scripts/env_check.py`
 
 The environment report described in the Commands table.
 
 ## Configs
 
-- `configs/data/base.yaml`: generator settings shared by all splits. Frame size 64, sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the occluder, 4 frames kept after it leaves, and no wall bounce in the 4 frames around entry and exit. Later tasks add the occluder and condition sections.
+- `configs/data/base.yaml`: generator settings shared by all splits. Frames of 64 x 96 pixels (height x width), sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the bar, 4 after it leaves, and no wall bounce in the 2 frames around entry and exit. Visibility thresholds: occluded at most 2% visible ink, visible at least 95%. Occlusion durations k in {2, 4, 6, 8} at speeds {2, 3, 4}, and k = 12 at speeds {2, 3}. Later tasks add the condition section.
 
 ## Conventions
 
@@ -138,10 +160,12 @@ peekaboo/           the package
     mnist_pool.py   MNIST splits and digit sprites
     trajectory.py   bouncing integer trajectories from an anchor frame
     spec.py         SequenceSpec, the description of one sequence
+    occluder.py     visible fractions and the occluder placement solver
 scripts/            command line entry points
   env_check.py      environment report
   prepare_mnist.py  MNIST download and pool report
   plot_trajectories.py  visual check of the motion model
+  check_occluder.py     placement report and space time diagrams
 configs/            one config file per experiment
   data/base.yaml    generator settings
 tests/              unit tests (pytest)

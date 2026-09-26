@@ -10,7 +10,7 @@ from peekaboo.data.trajectory import (Bounds, axis_path, build_trajectory, conti
                                       sample_velocity)
 from peekaboo.seeding import make_rng
 
-BOUNDS = Bounds.for_sprite(64, 15, 12)  # y in [0, 49], x in [0, 52]
+BOUNDS = Bounds.for_sprite(64, 64, 15, 12)  # y in [0, 49], x in [0, 52]
 
 
 def naive_forward(pos: int, vel: int, n: int, lo: int, hi: int) -> list[int]:
@@ -105,7 +105,7 @@ def test_invalid_anchors_raise() -> None:
     with pytest.raises(ValueError):
         axis_path(0, 10, 50, 5, 0, 50)
     with pytest.raises(ValueError):
-        Bounds.for_sprite(64, 64, 10)
+        Bounds.for_sprite(64, 96, 64, 10)
 
 
 def test_continue_from_keeps_the_past() -> None:
@@ -141,7 +141,7 @@ def test_sample_velocity_values() -> None:
 def make_spec() -> SequenceSpec:
     """Build a small spec with every field set, for serialization tests."""
     traj = build_trajectory(5, (20, 10), (1, 3), 12, BOUNDS)
-    return SequenceSpec(split="test", index=3, seed=42, frame_size=64, seq_len=12, digit_index=7,
+    return SequenceSpec(split="test", index=3, seed=42, frame_height=64, frame_width=96, seq_len=12, digit_index=7,
                         mnist_index=1234, label=5, ink_height=15, ink_width=12, positions=traj.positions,
                         velocities=traj.velocities, digit_present=np.ones(12, dtype=bool), bar_left=30,
                         bar_width=24, blackout_frames=(6, 7), condition="occlusion", k_target=4, onset_frame=6,

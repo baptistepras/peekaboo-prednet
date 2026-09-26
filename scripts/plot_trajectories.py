@@ -26,10 +26,11 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_config(args.config)
-    frame, seq_len, motion = config["frame_size"], config["seq_len"], config["motion"]
+    fh, fw = config["frame_height"], config["frame_width"]
+    seq_len, motion = config["seq_len"], config["motion"]
     cols = 4
     rows = int(np.ceil(args.n / cols))
-    fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows), squeeze=False)
+    fig, axes = plt.subplots(rows, cols, figsize=(3.6 * cols, 2.6 * rows), squeeze=False)
 
     for i, ax in enumerate(axes.flat):
         if i >= args.n:
@@ -37,7 +38,7 @@ def main() -> int:
             continue
         rng = make_rng(args.seed, "plot_trajectories", i)
         height, width = int(rng.integers(11, 17)), int(rng.integers(4, 17))  # typical ink sizes
-        bounds = Bounds.for_sprite(frame, height, width)
+        bounds = Bounds.for_sprite(fh, fw, height, width)
         anchor_frame = int(rng.integers(0, seq_len))
         anchor_pos = (int(rng.integers(bounds.y_min + 1, bounds.y_max)),
                       int(rng.integers(bounds.x_min + 1, bounds.x_max)))
@@ -52,9 +53,9 @@ def main() -> int:
         hits = traj.bounced.any(axis=1)
         ax.scatter(cx[hits], cy[hits], marker="x", color="red", s=40, zorder=3, label="bounce")
         ax.scatter(cx[anchor_frame], cy[anchor_frame], marker="*", color="black", s=90, zorder=4, label="anchor")
-        ax.add_patch(plt.Rectangle((0, 0), frame, frame, fill=False, color="black"))
-        ax.set_xlim(-2, frame + 2)
-        ax.set_ylim(frame + 2, -2)  # image convention: y grows downward
+        ax.add_patch(plt.Rectangle((0, 0), fw, fh, fill=False, color="black"))
+        ax.set_xlim(-2, fw + 2)
+        ax.set_ylim(fh + 2, -2)  # image convention: y grows downward
         ax.set_aspect("equal")
         ax.set_title(f"v=({vel[0]},{vel[1]}) anchor t={anchor_frame}", fontsize=8)
         ax.tick_params(labelsize=6)
