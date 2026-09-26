@@ -23,8 +23,9 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.1 | Project skeleton: device helper, seeding, configs, environment check, tests | done |
 | 1.2 | MNIST digit pool: fixed splits, resized digits, ink sprites | done |
 | 1.3 | Sequence spec and bouncing trajectories built from an anchor frame | done |
-| 1.4 | Occluder bar: exact visible fractions and a placement solver for a target occlusion duration | in review |
-| 1.5 to 1.11 | Data generator (conditions, rendering, storage, validation, benchmarks) | next |
+| 1.4 | Occluder bar: exact visible fractions and a placement solver for a target occlusion duration | done |
+| 1.5 | Conditions (control, occlusion, hidden bounce, blackout) and PLATO style surprise tuples | done |
+| 1.6 to 1.11 | Data generator (rendering, storage, validation, benchmarks) | next |
 | 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -51,6 +52,7 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m scripts.prepare_mnist` | Downloads MNIST into `data/mnist/` (first run only), builds the train, val, and test digit pools, prints their statistics as JSON lines, checks that train and val share no digit, and saves a sheet of val sprites (one row per label) to `figures/mnist_pool.png`. Options: `--box-size`, `--ink-threshold`, `--val-size`, `--holdout-seed`, `--no-download`, `--sheet`. | Three JSON lines with 55000, 5000, and 10000 digits, then `train/val overlap: 0 digits, train + val = 60000`. |
 | `python -m scripts.plot_trajectories` | Samples 12 random trajectories with the motion settings of `configs/data/base.yaml` and saves their paths to `figures/trajectories.png`, with wall bounces (red crosses) and anchor frames (black stars). Options: `--config`, `--n`, `--seed`, `--out`. | `saved .../figures/trajectories.png`. Paths stay inside the frame and mirror off the borders. |
 | `python -m scripts.check_occluder` | For every cell (k, speed) of `configs/data/base.yaml`, places the occluder for 200 random val digits and prints one line per cell: share of digits placed, mean attempts, mean ink width of the placed digits (compare with the pool mean on the first line to spot a bias), bar width range (min, median, max), bar position range, onset frame range, and share of fully occluded frames. Saves space time diagrams to `figures/occluder_examples.png`. Needs MNIST (run `prepare_mnist` first). Options: `--config`, `--split`, `--n`, `--seed`, `--out`. | One line per cell, 100% placed except in the cells k=8 at v=4 and k=12 at v=3, where the widest digits (about 1 to 2%) do not fit. |
+| `python -m scripts.check_conditions` | Generates 100 sequences of each condition, 1000 from the training mix, and 20 surprise tuples per surprise type and cell (k in {4, 8}, speed in {2, 4}) on real val digits. Prints, per condition, the share built, the k values, the bar widths, the share of fully hidden frames, and the share of sequences with another full occlusion outside the analysis window. Prints the condition shares of the training mix and its share of hidden frames. Prints, per surprise type, the share of tuples built, whether every splice happens while hidden, and how much the reappearance moves. Saves `figures/conditions_examples.png` and `figures/surprise_tuples.png`. Needs MNIST. Options: `--config`, `--split`, `--n`, `--n-mix`, `--n-tuples`, `--seed`, `--out`. | Conditions built at or near 100%, training mix close to 30/60/10, about 20% hidden frames in occlusion sequences, `yes` in the splice column for every surprise. |
 
 ## Modules
 
@@ -115,12 +117,63 @@ The occluder is a full height vertical gray bar, drawn on top of the digit. This
   - no wall bounce on x from 2 frames before entry to 2 frames after exit, so the digit leaves on the far side, and no bounce on y in the 2 frames around entry and exit (a vertical bounce while hidden is allowed);
   - other contacts with the bar are allowed outside the window (`allow_contact_outside_window`).
 - `CrossingSettings.from_config(config)`: the solver settings from `configs/data/base.yaml`.
+- `plan_hidden_bounce(rng, sprite, k, settings)`: same idea with the bar against a wall. It anchors the trajectory just before the wall bounce and tries bar widths until the digit stays hidden for exactly k frames, with exactly one wall bounce around the event, while hidden.
+- `plan_contact(rng, sprite, settings, speeds)`: a bar narrower than the digit, which passes behind it without ever being fully hidden anywhere in the sequence (the control).
+- `windows_ok(...)` and `find_contact(...)`: the window rules and the contact episode, shared by the three solvers and by the surprise tuples.
 
 **Why the frames are 96 px wide.** Along x, the digit needs room to approach the bar, to cross it, and to leave it. With ink width w, speed v, and occlusion duration k, the budget is about (k + 4.5) x v <= frame width - 3w. At 64 px, the widest digits could not be hidden for more than 1 frame at 4 px/frame, and the bar would sit almost always at the same place. At 96 px, every digit fits every cell of the grid except the widest ones (16 px, about 1% of digits) at k = 8 with v = 4 and at k = 12.
 
+### `peekaboo/data/conditions.py`
+
+Turns placements into complete sequence specs, one per condition:
+
+| Condition | What happens | Used in |
+|---|---|---|
+| `control` | The bar is **narrower than the digit**. The digit passes behind it but is never fully hidden (k = 0). Everything else matches the occlusion sequences: a bar is present, the crossing has the same timing, and the same window rules apply. | train, test |
+| `occlusion` | The digit crosses behind the bar and is fully hidden for exactly k frames. | train, test |
+| `hidden_bounce` | The bar stands **against a wall**. The digit bounces off the wall while hidden and comes back out on the side it entered. Exactly one wall bounce happens around the event, while the digit is fully hidden. | train (10%), test |
+| `blackout` | A control sequence whose frames are all set to zero for k frames, starting at the most covered frame. The bar stays present, as in training, and only the input disappears. | test |
+
+Why the control uses a narrow bar: at 2 to 4 px/frame for 40 frames, the digit sweeps almost the whole frame width, and it cannot bounce off the bar. A bar that the digit never reaches would have to sit in a corner, far from where occlusion bars are, so it would not be a matched control.
+
+- `GeneratorSettings.from_config(config)`: placement rules plus the training mix (30% control, 60% occlusion, 10% hidden bounce), the k weights, and the surprise parameters.
+- `sample_spec(pool, settings, split, index, base_seed, condition=None, k=None, speed=None)`: builds sequence `index` of a split, fully determined by `(base_seed, split, index)`. Unset arguments are drawn: the condition from the training mix, k with weights proportional to k (so about 20% of the frames of occlusion sequences are fully hidden, as the plan targets), and the speed among those allowed for k. If a digit cannot be placed, another digit is drawn.
+- `plan_condition`, `spec_from_plan`, `make_spec`: the steps behind `sample_spec`, reused by the surprise tuples.
+- `spec_visible_fraction(spec, sprite)`: visible ink fraction per frame, 0 when the digit is absent or during a blackout.
+
+Each spec records the key frames of its event (entry, onset, expected and actual reappearance, exit) and its **analysis window** (8 frames before entry to 4 frames after exit). Metrics are computed inside this window. The digit may meet the bar again outside it, and those extra occlusions will be labeled in the ground truth (task 1.6).
+
+### `peekaboo/data/splicing.py`
+
+Surprise sequences, built as in the violation of expectation design of PLATO (Piloto et al., 2022). Each surprise is a **tuple of four sequences** with the same digit and bar:
+
+- **possible A**: an ordinary occlusion;
+- **possible B**: another plausible sequence, built from A's state at a splice frame where the digit is fully hidden, with one change applied;
+- **impossible AB**: A's frames before the splice, then B's frames;
+- **impossible BA**: B's frames before the splice, then A's frames.
+
+A hidden digit is not drawn, so the frames at the splice are identical and the cut is invisible. The change happens strictly while the digit is hidden (it is hidden in both A and B at the frame before the splice and at the splice frame). Timing surprises (`speed_fast`, `speed_slow`, `early`) must also move the reappearance by at least one frame: a change made on the last hidden frame could otherwise leave it unchanged and go unnoticed. AB and B end with **identical frames** and differ only in their history, so the surprise signal is the model's error on AB after the splice minus its error on B, on the same frames.
+
+| Surprise | Change applied at the splice | Effect on AB |
+|---|---|---|
+| `direction` | horizontal velocity reversed (the bar is not against a wall) | comes back out on the side it entered |
+| `speed_fast` | speed doubled | reappears early |
+| `speed_slow` | speed halved (even speeds only) | reappears late |
+| `offset` | vertical jump of 12 px | reappears at the right time, 12 px higher or lower |
+| `early` | jump forward by half of the k hidden frames, same speed | reappears early |
+| `vanish` | B is the same scene without any digit | never reappears (and BA appears from nowhere) |
+
+`direction` and `hidden_bounce` look alike at reappearance: the digit comes back out on the side it entered. Only the wall behind the bar makes one plausible and the other impossible, which makes this pair the cleanest test of RQ3.
+
+- `sample_surprise_tuple(pool, settings, split, index, base_seed, kind, k, speed)`: one tuple, fully determined by its arguments. `tuple.specs()` returns A, B, AB, BA. Each spec carries `tuple_id`, `tuple_role`, and `surprise_frame` (the splice frame).
+
+### `peekaboo/viz/space_time.py`
+
+Space time diagrams shared by the report scripts: x horizontally, frames downward, the bar as a gray band, and the ink of each frame colored by visibility (green visible, orange partial, red fully hidden, black blackout, nothing when the digit is absent). `draw_spec(ax, spec, sprite, thresholds, title)` also marks the event frames, including the splice.
+
 ### `peekaboo/data/spec.py`
 
-`SequenceSpec` is the compact, complete description of one sequence: identity and seed, digit, per frame positions and velocities, whether the digit is present (it disappears after a "vanish" surprise), occluder bar, blackout frames, condition, and event frames (occlusion onset, expected and actual reappearance, surprise). Rendering a spec is deterministic, so test sets can be stored as specs. `metadata()` gives a flat row for a metadata table, and `to_dict()` and `from_dict()` convert to and from JSON.
+`SequenceSpec` is the compact, complete description of one sequence: identity and seed, digit, per frame positions and velocities, whether the digit is present (it disappears after a "vanish" surprise), occluder bar, blackout frames, condition, k and speed, event frames (entry, onset, expected and actual reappearance, exit), analysis window, and for surprises the splice frame, tuple id, and role (A, B, AB, BA). Rendering a spec is deterministic, so test sets can be stored as specs. `metadata()` gives a flat row for a metadata table, and `to_dict()` and `from_dict()` convert to and from JSON.
 
 ### `scripts/prepare_mnist.py`
 
@@ -134,13 +187,17 @@ Visual check of the motion model (see the Commands table).
 
 Report on the placement solver with real digits, and space time diagrams: x horizontally, time downward, the bar as a gray band, and the ink extent of each frame in green (visible), orange (partial), or red (occluded), with the entry, onset, reappear, and exit frames marked.
 
+### `scripts/check_conditions.py`
+
+Report on conditions, training mix, and surprise tuples with real digits (see the Commands table), with space time diagrams of two sequences per condition and one tuple per surprise type.
+
 ### `scripts/env_check.py`
 
 The environment report described in the Commands table.
 
 ## Configs
 
-- `configs/data/base.yaml`: generator settings shared by all splits. Frames of 64 x 96 pixels (height x width), sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the bar, 4 after it leaves, and no wall bounce in the 2 frames around entry and exit. Visibility thresholds: occluded at most 2% visible ink, visible at least 95%. Occlusion durations k in {2, 4, 6, 8} at speeds {2, 3, 4}, and k = 12 at speeds {2, 3}. Later tasks add the condition section.
+- `configs/data/base.yaml`: generator settings shared by all splits. Frames of 64 x 96 pixels (height x width), sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the bar, 4 after it leaves, and no wall bounce in the 2 frames around entry and exit. Visibility thresholds: occluded at most 2% visible ink, visible at least 95%. Occlusion durations k in {2, 4, 6, 8} at speeds {2, 3, 4}, and k = 12 at speeds {2, 3}. Training mix 30% control, 60% occlusion, 10% hidden bounce, with k drawn with weights proportional to k. Surprises: 12 px vertical offset, and a forward jump of half the hidden frames for "early".
 
 ## Conventions
 
@@ -160,12 +217,17 @@ peekaboo/           the package
     mnist_pool.py   MNIST splits and digit sprites
     trajectory.py   bouncing integer trajectories from an anchor frame
     spec.py         SequenceSpec, the description of one sequence
-    occluder.py     visible fractions and the occluder placement solver
+    occluder.py     visible fractions and the placement solvers
+    conditions.py   control, occlusion, hidden bounce, blackout
+    splicing.py     PLATO style surprise tuples
+  viz/              figures
+    space_time.py   space time diagrams
 scripts/            command line entry points
   env_check.py      environment report
   prepare_mnist.py  MNIST download and pool report
   plot_trajectories.py  visual check of the motion model
   check_occluder.py     placement report and space time diagrams
+  check_conditions.py   conditions and surprise tuples report
 configs/            one config file per experiment
   data/base.yaml    generator settings
 tests/              unit tests (pytest)

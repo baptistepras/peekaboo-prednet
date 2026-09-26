@@ -12,33 +12,10 @@ import numpy as np
 
 from peekaboo.config import load_config
 from peekaboo.data.mnist_pool import build_digit_pool
-from peekaboo.data.occluder import (STATE_OCCLUDED, STATE_PARTIAL, STATE_VISIBLE, CrossingSettings, OcclusionPlan,
-                                    plan_crossing, visibility_states)
+from peekaboo.data.occluder import CrossingSettings, plan_crossing
 from peekaboo.paths import CONFIGS_DIR, FIGURES_DIR
 from peekaboo.seeding import make_rng
-
-STATE_COLORS = {STATE_VISIBLE: "tab:green", STATE_PARTIAL: "tab:orange", STATE_OCCLUDED: "tab:red"}
-
-
-def draw_space_time(ax: plt.Axes, plan: OcclusionPlan, width: int, settings: CrossingSettings, title: str) -> None:
-    """Draw x (horizontal) against time (downward): the bar as a gray band, the ink extent colored by visibility state."""
-    seq_len = settings.seq_len
-    ax.axvspan(plan.bar_left, plan.bar_left + plan.bar_width, color="0.8", zorder=0)
-    states = visibility_states(plan.fractions, settings.thresholds)
-    for t in range(seq_len):
-        x = plan.trajectory.positions[t, 1]
-        ax.plot([x, x + width], [t, t], color=STATE_COLORS[int(states[t])], lw=2.5, solid_capstyle="butt")
-    e = plan.event
-    for frame, name in ((e.entry_frame, "entry"), (e.onset_frame, "onset"), (e.reappear_frame, "reappear"),
-                        (e.exit_frame, "exit")):
-        ax.axhline(frame, color="black", lw=0.5, ls=":")
-        ax.text(settings.frame_width + 1, frame, name, fontsize=6, va="center")
-    ax.set_xlim(0, settings.frame_width)
-    ax.set_ylim(seq_len - 0.5, -0.5)
-    ax.set_xlabel("x (px)", fontsize=7)
-    ax.set_ylabel("frame", fontsize=7)
-    ax.set_title(title, fontsize=8)
-    ax.tick_params(labelsize=6)
+from peekaboo.viz.space_time import draw_space_time
 
 
 def main() -> int:
@@ -80,7 +57,7 @@ def main() -> int:
                 bar_widths.append(plan.bar_width)
                 bar_lefts.append(plan.bar_left)
                 onsets.append(plan.event.onset_frame)
-                if i == 0 and speed == 3 or (i == 0 and k == 12 and speed == 2):
+                if i == 0 and (speed == 3 or (k == 12 and speed == 2)):
                     examples.append((plan, int(pool.widths[d]), f"k={k}, v={speed}, bar {plan.bar_width} px"))
             all_ok &= placed == args.n
             if placed == 0:
@@ -95,7 +72,10 @@ def main() -> int:
     rows = int(np.ceil(len(examples) / cols))
     fig, axes = plt.subplots(rows, cols, figsize=(4.2 * cols, 3.6 * rows), squeeze=False)
     for ax, (plan, width, title) in zip(axes.flat, examples):
-        draw_space_time(ax, plan, width, settings, title)
+        e = plan.event
+        marks = {"entry": e.entry_frame, "onset": e.onset_frame, "reappear": e.reappear_frame, "exit": e.exit_frame}
+        draw_space_time(ax, plan.trajectory.positions[:, 1], width, plan.fractions, plan.bar_left, plan.bar_width,
+                        settings.frame_width, settings.thresholds, marks, title)
     for ax in axes.flat[len(examples):]:
         ax.axis("off")
     fig.suptitle("Ink extent over time: green visible, orange partial, red occluded, gray band = bar", fontsize=9)
