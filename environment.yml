@@ -1,0 +1,22 @@
+# Project environment for predictive coding under occlusion.
+# Everything comes from conda-forge, so the same file works on macOS arm64 (MPS)
+# and on a Linux CUDA cluster (conda-forge picks the CUDA build of pytorch there).
+name: peekaboo
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pytorch>=2.5
+  - torchvision
+  - numpy
+  - scipy
+  - pandas
+  - pyarrow        # parquet metadata tables
+  - pyyaml         # experiment configs
+  - opencv         # connected components, resize
+  - pillow         # GIF export
+  - matplotlib
+  - scikit-learn   # probes, AUROC
+  - tqdm
+  - pytest
+  - ipykernel      # optional, to use the env from Jupyter

@@ -1,0 +1,77 @@
+# Personal working notes and machine specific files, kept locally only
+PROJECT_BRIEF.md
+PLAN.md
+CLAUDE.md
+environment.lock.yml
+.claude/
+
+# Reference material, kept locally only.
+# Third party clones have their own git history, and some papers are paywalled.
+papers/
+third_party/
+
+# Generated outputs
+data/
+datasets/
+runs/
+outputs/
+checkpoints/
+figures/
+logs/
+
+# Data files, wherever they are
+*.npy
+*.npz
+*.parquet
+*.feather
+*.arrow
+*.csv
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.mat
+*-ubyte
+*-ubyte.gz
+
+# Model weights and checkpoints
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+
+# Media produced by scripts
+*.gif
+*.mp4
+
+# Experiment trackers
+wandb/
+mlruns/
+lightning_logs/
+tensorboard/
+events.out.tfevents.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editors and local settings
+.vscode/
+.idea/
+.env
+
+# macOS
+.DS_Store
+._*
