@@ -94,7 +94,7 @@ def test_plan_crossing_meets_every_rule(k: int, speed: int, seed: int) -> None:
     assert (f[e.onset_frame:e.reappear_frame] <= THRESHOLDS.occluded_max).all()
     assert f[e.reappear_frame] > THRESHOLDS.occluded_max
     assert 0 <= plan.bar_left and plan.bar_left + plan.bar_width <= SETTINGS.frame_width
-    assert plan.bar_width >= sprite.shape[1]
+    assert plan.bar_width > 0  # it may be narrower than the digit if a faint edge sticks out
     # fully visible context before entry and post frames after exit
     assert e.entry_frame >= SETTINGS.n_context
     assert (f[e.entry_frame - SETTINGS.n_context:e.entry_frame] == 1).all()
@@ -123,6 +123,17 @@ def test_plan_crossing_rejects_impossible_requests() -> None:
         plan_crossing(make_rng("x"), sprite, 0, SETTINGS)
     with pytest.raises(RuntimeError):
         plan_crossing(make_rng("x"), sprite, 40, SETTINGS, speeds=[2])
-    # a 16 px wide digit at 2 px/frame needs 8 + 8 + 12 + 8 + 4 = 40 frames for k = 12: one too many
+    # a 16 px wide digit hidden for 12 frames at 4 px/frame needs a bar of about 60 px: no room left to approach it
     with pytest.raises(RuntimeError):
-        plan_crossing(make_rng("x"), synthetic_sprite(0, width=16), 12, SETTINGS, speeds=[2])
+        plan_crossing(make_rng("x"), synthetic_sprite(0, width=16), 12, SETTINGS, speeds=[4])
+
+
+def test_faint_edge_columns_are_compensated() -> None:
+    """A digit whose edge columns hold under 2% of the ink can still be placed for every k at 2 px/frame."""
+    sprite = np.zeros((14, 12), dtype=np.uint8)
+    sprite[:, 2:10] = 255  # solid body
+    sprite[7, 0:2] = 30    # faint tips on both sides, far below 2% of the ink
+    sprite[7, 10:12] = 30
+    for k in (2, 4, 8, 12):
+        plan = plan_crossing(make_rng("faint", k), sprite, k, SETTINGS, speeds=[2])
+        assert plan.event.k == k
