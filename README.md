@@ -21,7 +21,8 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | Phase | Content | State |
 |---|---|---|
 | 1.1 | Project skeleton: device helper, seeding, configs, environment check, tests | done |
-| 1.2 to 1.11 | Data generator (MNIST pool, trajectories, occluder, conditions, rendering, storage, validation, benchmarks) | next |
+| 1.2 | MNIST digit pool: fixed splits, resized digits, ink sprites | in review |
+| 1.3 to 1.11 | Data generator (trajectories, occluder, conditions, rendering, storage, validation, benchmarks) | next |
 | 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -45,6 +46,7 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m scripts.env_check --device cpu` | Same check, forced on the CPU (also accepts `cuda` or `mps`). | `op check ok`. |
 | `python -m pytest` | Runs all unit tests in `tests/`. | All tests pass. |
 | `python -m pytest tests/test_seeding.py -v` | Runs one test file with one line per test. | All tests pass. |
+| `python -m scripts.prepare_mnist` | Downloads MNIST into `data/mnist/` (first run only), builds the train, val, and test digit pools, prints their statistics as JSON lines, checks that train and val share no digit, and saves a sheet of val sprites (one row per label) to `figures/mnist_pool.png`. Options: `--box-size`, `--ink-threshold`, `--val-size`, `--holdout-seed`, `--no-download`, `--sheet`. | Three JSON lines with 55000, 5000, and 10000 digits, then `train/val overlap: 0 digits, train + val = 60000`. |
 
 ## Modules
 
@@ -75,6 +77,19 @@ Experiments are described by one config file each, in YAML or JSON.
 
 Standard locations, resolved from the package location: `data/`, `data/mnist/`, `data/datasets/`, `runs/`, `figures/`, `configs/`.
 
+### `peekaboo/data/mnist_pool.py`
+
+The digits used by the generator. Test sequences only use digits from the MNIST test file, and validation sequences only use a holdout of the MNIST train file, so both are unseen shapes for the trained models.
+
+- Splits: `train` is the MNIST train file minus a fixed random holdout of 5000 digits, `val` is that holdout, `test` is the full MNIST test file (10000 digits). `split_indices(split, n_images, val_size, holdout_seed)` returns the indices, identical on every machine.
+- `prepare_sprite(image, box_size=20, ink_threshold=0.1)`: resizes a 28x28 digit to 20x20 (the whole image, so the ink shrinks from about 20 to about 14 pixels), sets pixels below 10% intensity to zero, and crops to the ink. After this step every nonzero pixel is ink, which makes ink masks and visible fractions exact.
+- `DigitPool`: all sprites of one split, padded into one array, with their MNIST index, label, ink height and width, total ink, and intensity weighted centroid. The centroid is the reference point for the ground truth position of the digit. `pool.sprite(i)` returns one tight sprite, `pool.sample(rng)` draws one digit.
+- `build_digit_pool(split)`: loads MNIST through torchvision and builds the pool of a split. `pool_summary(pool)` gives label counts and ink size percentiles.
+
+### `scripts/prepare_mnist.py`
+
+Downloads MNIST and reports on the three pools (see the Commands table). Look at `figures/mnist_pool.png` to check the resized digits.
+
 ### `scripts/env_check.py`
 
 The environment report described in the Commands table.
@@ -93,8 +108,11 @@ peekaboo/           the package
   seeding.py        seeds
   config.py         YAML and JSON configs
   paths.py          standard locations
+  data/             synthetic occlusion data
+    mnist_pool.py   MNIST splits and digit sprites
 scripts/            command line entry points
   env_check.py      environment report
+  prepare_mnist.py  MNIST download and pool report
 tests/              unit tests (pytest)
 environment.yml     conda environment "peekaboo"
 pyproject.toml      pytest settings (nothing to install)
