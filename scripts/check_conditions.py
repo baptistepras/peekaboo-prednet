@@ -16,11 +16,12 @@ from peekaboo.data.conditions import CONDITIONS, GeneratorSettings, sample_spec
 from peekaboo.data.mnist_pool import DigitPool, build_digit_pool
 from peekaboo.data.occluder import column_ink, visible_fraction
 from peekaboo.data.spec import SequenceSpec
-from peekaboo.data.splicing import SURPRISES, sample_surprise_tuple
+from peekaboo.data.splicing import SURPRISES, sample_surprise_tuple, surprise_speeds
 from peekaboo.paths import CONFIGS_DIR, FIGURES_DIR
 from peekaboo.viz.space_time import draw_spec
 
-TUPLE_CELLS = [(4, 2), (4, 4), (8, 2), (8, 4)]  # (k, speed) cells tried for each surprise
+# (k, speed) cells tried for each surprise, when the speed is allowed for it
+TUPLE_CELLS = [(4, 2), (4, 4), (8, 2), (8, 4)]
 
 
 def bar_fractions(spec: SequenceSpec, pool: DigitPool) -> np.ndarray:
@@ -93,7 +94,7 @@ def main() -> int:
     for kind in SURPRISES:
         built, tried, shifts, hidden_ok = 0, 0, [], True
         for k, speed in TUPLE_CELLS:
-            if kind == "early" and k < 4:
+            if speed not in surprise_speeds(kind, settings):  # B must keep a training speed
                 continue
             for i in range(args.n_tuples):
                 tried += 1

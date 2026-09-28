@@ -1,0 +1,60 @@
+# Generator settings shared by every split.
+# Frames are 64 high and 96 wide: at 64 wide, the approach, the bar, and the exit do not fit (see the README).
+frame_height: 64
+frame_width: 96
+seq_len: 40
+
+digits:
+  box_size: 20          # 28x28 MNIST image resized to 20x20, ink about 12 px wide
+  ink_threshold: 0.1    # pixels below 10% intensity are set to zero
+  val_size: 5000        # holdout of the MNIST train file used for validation
+  holdout_seed: 0
+
+motion:
+  x_speeds: [2, 3, 4]              # |vx| in px/frame, integer, sign drawn at random
+  y_velocities: [-2, -1, 0, 1, 2]  # vy in px/frame
+  n_context: 8                     # fully visible frames before the bar first covers ink
+  n_post: 4                        # fully visible frames after the digit leaves the bar
+  n_clean: 2                       # no wall bounce in this many frames before entry and after exit
+
+visibility:
+  occluded_max: 0.02    # a frame is "occluded" if at most 2% of the ink is visible
+  visible_min: 0.95     # and "visible" if at least 95% is visible, "partial" in between
+
+occluder:
+  # allowed speeds |vx| for each occlusion duration k (full occlusion frames)
+  k_speeds:
+    2: [2, 3, 4]
+    4: [2, 3, 4]
+    6: [2, 3, 4]
+    8: [2, 3, 4]
+    12: [2, 3]
+  allow_contact_outside_window: true   # the digit may meet the bar again before or after the analysis window
+  max_attempts: 500                    # placement attempts before giving up on one digit
+  control_min_width: 4                 # control bars are at least 4 px wide, and narrower than the digit
+
+conditions:
+  # share of each condition in training sequences (blackout and surprises are test only)
+  train_mix:
+    control: 0.3        # narrow bar: the digit passes behind it but is never fully hidden (k = 0)
+    occlusion: 0.6
+    hidden_bounce: 0.1  # bar against a wall: the digit bounces off the wall while hidden
+  # weight of each occlusion duration k when it is drawn at random; proportional to k,
+  # so that about 20% of the frames of occlusion sequences are fully occluded
+  k_weights:
+    2: 2
+    4: 4
+    6: 6
+    8: 8
+    12: 12
+  max_digit_draws: 20   # digits tried before giving up on one sequence
+
+surprises:
+  offset_px: 12         # vertical jump of the "offset" surprise
+  early_fraction: 0.5   # the "early" surprise skips this share of the k hidden frames
+  max_attempts: 100     # placements of A tried per digit before drawing another digit
+  # B must keep a training speed, so speed_fast is built from 2 px/frame (to 4) and speed_slow from 4 (to 2)
+
+render:
+  digit_rgb: [1.0, 0.0, 0.0]   # the digit is drawn in red, scaled by its MNIST intensity
+  bar_gray: 0.5                # the bar is flat mid gray on all three channels, drawn on top of the digit

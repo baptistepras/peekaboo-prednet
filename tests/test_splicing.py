@@ -7,11 +7,11 @@ from peekaboo.data.conditions import GeneratorSettings
 from peekaboo.data.mnist_pool import DigitPool
 from peekaboo.data.occluder import column_ink, visible_fraction
 from peekaboo.data.spec import SequenceSpec
-from peekaboo.data.splicing import SURPRISES, make_surprise_tuple, sample_surprise_tuple
+from peekaboo.data.splicing import SURPRISES, make_surprise_tuple, sample_surprise_tuple, surprise_speeds
 
-# speed_slow halves the speed, so it uses 4 px/frame; the other surprises run at 2 and 3 px/frame
-CELLS = [(kind, k, speed) for kind in SURPRISES
-         for k, speed in ([(4, 4), (6, 4)] if kind == "speed_slow" else [(6, 2), (4, 3)])]
+# B keeps a training speed: speed_fast runs from 2 px/frame (to 4), speed_slow from 4 (to 2), the others at 2 and 3
+SPEED_CELLS = {"speed_fast": [(6, 2), (4, 2)], "speed_slow": [(4, 4), (6, 4)]}
+CELLS = [(kind, k, speed) for kind in SURPRISES for k, speed in SPEED_CELLS.get(kind, [(6, 2), (4, 3)])]
 
 
 def bar_fractions(spec: SequenceSpec, pool: DigitPool) -> np.ndarray:
@@ -69,8 +69,7 @@ def test_tuple_structure(kind: str, k: int, speed: int, pool: DigitPool, setting
         assert abs(ab.positions[ts, 0] - a.positions[ts, 0]) == settings.offset_px
 
 
-@pytest.mark.parametrize("kind,speed", [("speed_fast", 2), ("speed_fast", 3), ("early", 2), ("early", 3),
-                                        ("speed_slow", 4)])
+@pytest.mark.parametrize("kind,speed", [("speed_fast", 2), ("early", 2), ("early", 3), ("speed_slow", 4)])
 @pytest.mark.parametrize("index", range(8))
 def test_timing_surprises_move_reappearance(kind: str, speed: int, index: int, pool: DigitPool,
                                             settings: GeneratorSettings) -> None:
@@ -89,12 +88,20 @@ def test_tuples_are_deterministic(pool: DigitPool, settings: GeneratorSettings) 
     assert all(x == y for x, y in zip(t1.specs(), t2.specs()))
 
 
+def test_surprise_speeds_keep_b_in_training_range(settings: GeneratorSettings) -> None:
+    """With training speeds {2, 3, 4}, speed_fast starts from 2 and speed_slow from 4; the others use every speed."""
+    assert surprise_speeds("speed_fast", settings) == [2]
+    assert surprise_speeds("speed_slow", settings) == [4]
+    assert surprise_speeds("direction", settings) == [2, 3, 4]
+
+
 def test_invalid_surprise_requests(pool: DigitPool, settings: GeneratorSettings) -> None:
-    """Odd speeds cannot be halved, "early" needs a long enough occlusion, and unknown kinds are rejected."""
+    """Speeds that would take B out of the training range, a too short "early", and unknown kinds are rejected."""
     rng = np.random.default_rng(0)
     identity = {"split": "test", "index": 0, "seed": 0, "frame_height": 64, "frame_width": 96}
-    with pytest.raises(ValueError):
-        make_surprise_tuple(rng, pool, 0, "speed_slow", 4, 3, settings, identity, 0)
+    for kind, speed in (("speed_slow", 3), ("speed_slow", 2), ("speed_fast", 3), ("speed_fast", 4)):
+        with pytest.raises(ValueError):
+            make_surprise_tuple(rng, pool, 0, kind, 4, speed, settings, identity, 0)
     with pytest.raises(ValueError):
         make_surprise_tuple(rng, pool, 0, "early", 2, 2, settings, identity, 0)
     with pytest.raises(ValueError):

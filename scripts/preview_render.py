@@ -16,7 +16,7 @@ from peekaboo.data.mnist_pool import build_digit_pool
 from peekaboo.data.occluder import STATE_OCCLUDED
 from peekaboo.data.render import RenderedSequence, RenderSettings, measure_from_pixels, render_sequence
 from peekaboo.data.spec import SequenceSpec
-from peekaboo.data.splicing import SURPRISES, sample_surprise_tuple
+from peekaboo.data.splicing import SURPRISES, sample_surprise_tuple, surprise_speeds
 from peekaboo.data.truth import STATE_BLACKOUT, sequence_summary
 from peekaboo.paths import CONFIGS_DIR, FIGURES_DIR
 
@@ -67,7 +67,8 @@ def main() -> int:
     specs = [sample_spec(pool, settings, "preview_mix", i, args.seed) for i in range(args.n)]
     specs += [sample_spec(pool, settings, "preview_blackout", i, args.seed, condition="blackout") for i in range(50)]
     for kind in SURPRISES:
-        speed = 4 if kind == "speed_slow" else 3
+        allowed = surprise_speeds(kind, settings)
+        speed = 3 if 3 in allowed else allowed[0]
         for i in range(10):
             specs += sample_surprise_tuple(pool, settings, "preview_tuple", i, args.seed, kind, 6, speed).specs()
     errors = {"visible_fraction": 0.0, "center": 0.0, "modal_center": 0.0}

@@ -7,17 +7,18 @@ environment.lock.yml
 
 # Reference material, kept locally only.
 # Third party clones have their own git history, and some papers are paywalled.
-papers/
-third_party/
+/papers/
+/third_party/
 
-# Generated outputs
-data/
-datasets/
-runs/
-outputs/
-checkpoints/
-figures/
-logs/
+# Generated outputs, at the project root only: a leading slash keeps code folders
+# with the same name (peekaboo/data/, configs/data/) tracked
+/data/
+/datasets/
+/runs/
+/outputs/
+/checkpoints/
+/figures/
+/logs/
 
 # Data files, wherever they are
 *.npy
