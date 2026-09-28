@@ -26,8 +26,9 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.4 | Occluder bar: exact visible fractions and a placement solver for a target occlusion duration | done |
 | 1.5 | Conditions (control, occlusion, hidden bounce, blackout) and PLATO style surprise tuples | done |
 | 1.6 | Pixel rendering (observed, amodal, masks) and exact per frame ground truth | done |
-| 1.7 | On the fly dataset, spawn safe loader, and stored datasets (write, read, verify) | in review |
-| 1.8 to 1.11 | Dataset validation, figures, benchmarks, val and test sets | next |
+| 1.7 | On the fly dataset, spawn safe loader, and stored datasets (write, read, verify) | done |
+| 1.8 | Dataset validation: every sequence re-rendered and checked against the generator's rules | in review |
+| 1.9 to 1.11 | Contact sheets and GIFs, benchmarks, val and test sets | next |
 | 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -57,6 +58,8 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m scripts.check_conditions` | Generates 100 sequences of each condition, 1000 from the training mix, and 20 surprise tuples per surprise type and cell (k in {4, 8}, speed in {2, 4}, keeping only the speeds allowed for each surprise) on real val digits. Prints, per condition, the share built, the k values, the bar widths, the share of fully hidden frames, and the share of sequences with another full occlusion outside the analysis window. Prints the condition shares of the training mix and its share of hidden frames. Prints, per surprise type, the share of tuples built, whether every splice happens while hidden, and how much the reappearance moves. Saves `figures/conditions_examples.png` and `figures/surprise_tuples.png`. Needs MNIST. Options: `--config`, `--split`, `--n`, `--n-mix`, `--n-tuples`, `--seed`, `--out`. | Conditions built at or near 100%, training mix close to 30/60/10, about 20% hidden frames in occlusion sequences, `yes` in the splice column for every surprise. |
 | `python -m scripts.preview_render` | Renders 300 sequences of the training mix, 50 blackouts, and 10 tuples of each surprise type on real val digits, and checks that the visible fraction, the true center, and the visible ink center measured on the pixels equal the exact ground truth. Also checks that the measured k equals the target and that no other contact with the bar falls inside an analysis window, and counts occlusion sequences with another full occlusion outside the window. Then saves `figures/render_preview.png`: for one sequence per condition and two surprises, a strip of observed frames (with the true center as a cross, cyan when hidden) and a strip of amodal frames. Needs MNIST. Options: `--config`, `--split`, `--n`, `--step`, `--seed`, `--out`. | Differences around 1e-15 or smaller, 0 k mismatches, 0 window intrusions, then `all checks passed`. |
 | `python -m scripts.check_dataset` | Checks the data pipeline on real val digits. (1) Times an on the fly loader (20 batches of 16 sequences with 2 spawn workers by default) and prints the batch shapes. (2) Checks that the workers give exactly the batches of a single process. (3) Writes a small stored dataset (64 training mix sequences and one tuple of each surprise) to `data/datasets/smoke/`, reads it back, verifies every checksum, and compares its samples with the stream. Needs MNIST. Options: `--config`, `--split`, `--workers` (0 for a single process), `--batch-size`, `--batches`, `--seed`, `--out`. | A time per batch and a number of sequences per second, `yes` three times, then `all checks passed`. |
+| `python -m scripts.validate_dataset --data data/datasets/smoke` | Validates a stored dataset: every sequence is re-rendered and checked (see `validate.py` for the list of checks). Prints one line per check with the number of sequences checked and failed, then statistics per condition. Saves the report as `validation.json` in the dataset folder. The generator settings come from the dataset's `info.yaml` (or `--config`). | Every check with 0 failures, then `all checks passed`. |
+| `python -m scripts.validate_dataset --stream` | Same checks on sequences generated on the fly: 300 from the training mix and 5 tuples of each surprise type, plus a determinism check (the same index gives the same spec). Options: `--config`, `--split`, `--n`, `--tuples`, `--seed`. | Every check with 0 failures, then `all checks passed`. |
 
 ## Modules
 
@@ -236,6 +239,30 @@ Validation and test sets as small folders under `data/datasets/<name>/`:
 - `write_dataset(directory, specs, pool, render_settings, thresholds, info, overwrite=False)`: writes a set. It builds the folder next to its destination and moves it in place only when complete, so an interrupted write never leaves a half written set.
 - `StoredDataset(directory)`: reads a set and returns the same samples as `OnTheFlyDataset` for the same specs. `verify(i)` checks the checksums of sequence `i`, and `metadata` is the table as a pandas DataFrame.
 
+### `peekaboo/data/validate.py`
+
+Re-renders every sequence and checks it against the rules the generator promises. A `Validator` takes sequences one at a time, so any dataset size fits in memory, and checks each surprise tuple as soon as its four sequences have been seen.
+
+| Check | Rule |
+| --- | --- |
+| `render_matches_truth` | visible fraction, true center, and visible ink center measured on the pixels equal the exact truth (this includes "the true center matches the centroid of the amodal mask" from the plan) |
+| `colors` | the digit is pure red, the bar has its gray level, blackout frames are all zero |
+| `window_clean` | fully visible context and post frames, and no other contact with the bar inside the analysis window |
+| `exact_k` | the main event has exactly k consecutive occluded frames, starting at the onset frame |
+| `clean_motion` | no wall bounce in the 2 frames around entry and exit, and exactly one bounce, while hidden, for `hidden_bounce` |
+| `splice_hidden` | surprises change the trajectory strictly while the digit is hidden |
+| `splice_identical` | AB and BA are pixel exact splices of A and B |
+| `holdout` | validation sets use no digit of the training split |
+| `stored_truth` | the stored ground truth equals the truth recomputed from the spec |
+| `checksums` | frames render exactly as when the set was written |
+| `determinism` | the same seed and index give the same sequence (stream only) |
+
+The report also gives the number of sequences per condition and per cell, the share of occluded frames per condition (the plan targets 20 to 30% in occlusion sequences), and how many sequences have another full occlusion outside the window.
+
+- `Validator(settings, render_settings, forbidden_digits)`, then `add(position, spec, sprite)` per sequence and `finish()` for the `ValidationReport`.
+- `validate_stored(dataset, settings, forbidden_digits)`: the same on a stored set, including its stored truth and checksums.
+- `training_digits(val_size, holdout_seed)`: the MNIST indices of the training split, forbidden in validation sets.
+
 ### `peekaboo/viz/space_time.py`
 
 Space time diagrams shared by the report scripts: x horizontally, frames downward, the bar as a gray band, and the ink of each frame colored by visibility (green visible, orange partial, red fully hidden, black blackout, nothing when the digit is absent). `draw_spec(ax, spec, sprite, thresholds, title)` also marks the event frames, including the splice.
@@ -263,6 +290,10 @@ Report on conditions, training mix, and surprise tuples with real digits (see th
 ### `scripts/preview_render.py`
 
 Consistency check between the pixels and the exact ground truth on real digits, and a preview of the rendered frames (see the Commands table).
+
+### `scripts/validate_dataset.py`
+
+Runs the validation on a stored dataset or on the stream, prints the report, and saves it next to a stored dataset (see the Commands table).
 
 ### `scripts/check_dataset.py`
 
@@ -301,6 +332,7 @@ peekaboo/           the package
     truth.py        exact per frame ground truth
     dataset.py      on the fly dataset, sampler, loader
     store.py        stored datasets: write, read, verify
+    validate.py     dataset validation checks
   viz/              figures
     space_time.py   space time diagrams
 scripts/            command line entry points
@@ -311,6 +343,7 @@ scripts/            command line entry points
   check_conditions.py   conditions and surprise tuples report
   preview_render.py     pixels vs ground truth check and preview
   check_dataset.py      loader and stored dataset check
+  validate_dataset.py   validation report of a dataset
 configs/            one config file per experiment
   data/base.yaml    generator settings
 tests/              unit tests (pytest)
