@@ -53,7 +53,7 @@ def frame_tile(rendered: RenderedSequence, t: int, scale: int = 3, show_amodal: 
         x, y, r = (cx + 0.5) * scale, (cy + 0.5) * scale, 2 * scale  # pixel i spans [i, i + 1) * scale
         draw = ImageDraw.Draw(tile)
         for start, end in (((x - r, y), (x + r, y)), ((x, y - r), (x, y + r))):
-            draw.line([start, end], fill=(0, 255, 255) if hidden else WHITE, width=max(1, scale // 2))
+            draw.line([start, end], fill=(0, 255, 255) if hidden else WHITE, width=max(2, scale // 2))
     return tile
 
 

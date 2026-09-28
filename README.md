@@ -28,8 +28,9 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.6 | Pixel rendering (observed, amodal, masks) and exact per frame ground truth | done |
 | 1.7 | On the fly dataset, spawn safe loader, and stored datasets (write, read, verify) | done |
 | 1.8 | Dataset validation: every sequence re-rendered and checked against the generator's rules | done |
-| 1.9 | Contact sheets and GIFs of every condition and surprise | in review |
-| 1.10 to 1.11 | Benchmarks, val and test sets | next |
+| 1.9 | Contact sheets and GIFs of every condition and surprise | done |
+| 1.10 | Generator benchmark, validation and test sets built from set configs | in review |
+| 1.11 | PredNet benchmark on the target hardware | next |
 | 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -60,6 +61,9 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m scripts.preview_render` | Renders 300 sequences of the training mix, 50 blackouts, and 10 tuples of each surprise type on real val digits, and checks that the visible fraction, the true center, and the visible ink center measured on the pixels equal the exact ground truth. Also checks that the measured k equals the target and that no other contact with the bar falls inside an analysis window, and counts occlusion sequences with another full occlusion outside the window. Then saves `figures/render_preview.png`: for one sequence per condition and two surprises, a strip of observed frames (with the true center as a cross, cyan when hidden) and a strip of amodal frames. Needs MNIST. Options: `--config`, `--split`, `--n`, `--step`, `--seed`, `--out`. | Differences around 1e-15 or smaller, 0 k mismatches, 0 window intrusions, then `all checks passed`. |
 | `python -m scripts.check_dataset` | Checks the data pipeline on real val digits. (1) Times an on the fly loader (20 batches of 16 sequences with 2 spawn workers by default) and prints the batch shapes. (2) Checks that the workers give exactly the batches of a single process. (3) Writes a small stored dataset (64 training mix sequences and one tuple of each surprise) to `data/datasets/smoke/`, reads it back, verifies every checksum, and compares its samples with the stream. Needs MNIST. Options: `--config`, `--split`, `--workers` (0 for a single process), `--batch-size`, `--batches`, `--seed`, `--out`. | A time per batch and a number of sequences per second, `yes` three times, then `all checks passed`. |
 | `python -m scripts.validate_dataset --data data/datasets/smoke` | Validates a stored dataset: every sequence is re-rendered and checked (see `validate.py` for the list of checks). Prints one line per check with the number of sequences checked and failed, then statistics per condition. Saves the report as `validation.json` in the dataset folder. The generator settings come from the dataset's `info.yaml` (or `--config`). | Every check with 0 failures, then `all checks passed`. |
+| `python -m scripts.bench_generator` | Times the generator on real val digits: milliseconds per sequence for each stage of a training sequence (spec, amodal frames, observed frames, ground truth), spec generation per condition, tuple generation per surprise type, then loader throughput with 0, 2, and 4 workers. Options: `--config`, `--split`, `--n`, `--tuples`, `--workers` (for example `0,2,4,8`), `--batch-size`, `--batches`, `--seed`. | A few milliseconds per sequence, and several hundred sequences per second with workers. |
+| `python -m scripts.make_dataset --config configs/data/val_v1.yaml` | Builds the validation set (1000 sequences of the training mix, held out digits), writes it to `data/datasets/val_v1/`, then validates it and saves `validation.json` next to it. Options: `--overwrite` to rebuild, `--limit-per-cell N` for a quick trial with every cell capped at N (written as `<name>_limitN`), `--no-validate`. | A progress bar, the size on disk, then the validation report ending with `all checks passed`. |
+| `python -m scripts.make_dataset --config configs/data/test_v1.yaml` | Builds the test set (22200 sequences, see "Validation and test sets" below) to `data/datasets/test_v1/` and validates it. | Same, for the test set. |
 | `python -m scripts.render_examples` | Draws one example of every condition and every surprise tuple on real val digits, and saves in `figures/generator/`: a contact sheet (`sheet_<condition>.png`, every other frame, observed above amodal) and a GIF (`<condition>.gif`) per condition; a contact sheet (`sheet_surprise_<kind>.png`, the four sequences A, B, AB, BA one under the other) and a GIF showing the four side by side (`surprise_<kind>.gif`) per surprise; and `overview.png` with all conditions. In every tile, the cross marks the true center (cyan when hidden) and the strip below gives the state. Needs MNIST. Options: `--config`, `--split`, `--index` (another example), `--seed`, `--scale`, `--step`, `--fps`, `--out`. | `saved 21 files in .../figures/generator` and their list. |
 | `python -m scripts.validate_dataset --stream` | Same checks on sequences generated on the fly: 300 from the training mix and 5 tuples of each surprise type, plus a determinism check (the same index gives the same spec). Options: `--config`, `--split`, `--n`, `--tuples`, `--seed`. | Every check with 0 failures, then `all checks passed`. |
 
@@ -264,6 +268,14 @@ The report also gives the number of sequences per condition and per cell, the sh
 - `Validator(settings, render_settings, forbidden_digits)`, then `add(position, spec, sprite)` per sequence and `finish()` for the `ValidationReport`.
 - `validate_stored(dataset, settings, forbidden_digits)`: the same on a stored set, including its stored truth and checksums.
 - `training_digits(val_size, holdout_seed)`: the MNIST indices of the training split, forbidden in validation sets.
+- `format_report(report)`: the report as text, as printed by the scripts.
+
+### `peekaboo/data/build.py`
+
+Builds the specs of a validation or test set from a **set config** (see "Validation and test sets" below). A set config lists plain sequences by condition, k, and speed, surprise tuples by kind, k, and speed, and optionally a number of sequences drawn from the training mix. Every combination of the listed values is one cell.
+
+- `cells(set_config)` lists the cells and `count_sequences(set_config)` counts the sequences (a tuple counts as four).
+- `build_specs(set_config, pool, settings, limit_per_cell=None)`: builds every spec. Each cell has its own random stream, derived from the set's base seed and the cell, so a set is rebuilt identically and cells do not depend on each other. Tuple ids are numbered across the whole set, and the four sequences of a tuple share one id.
 
 ### `peekaboo/viz/space_time.py`
 
@@ -302,6 +314,14 @@ Report on conditions, training mix, and surprise tuples with real digits (see th
 
 Consistency check between the pixels and the exact ground truth on real digits, and a preview of the rendered frames (see the Commands table).
 
+### `scripts/bench_generator.py`
+
+Generator timing, stage by stage and per condition, and loader throughput (see the Commands table).
+
+### `scripts/make_dataset.py`
+
+Builds a set from its set config, writes it with `write_dataset`, and validates it (see the Commands table).
+
 ### `scripts/render_examples.py`
 
 Contact sheets and GIFs of one example per condition and per surprise (see the Commands table).
@@ -321,6 +341,28 @@ The environment report described in the Commands table.
 ## Configs
 
 - `configs/data/base.yaml`: generator settings shared by all splits. Frames of 64 x 96 pixels (height x width), sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the bar, 4 after it leaves, and no wall bounce in the 2 frames around entry and exit. Visibility thresholds: occluded at most 2% visible ink, visible at least 95%. Occlusion durations k in {2, 4, 6, 8} at speeds {2, 3, 4}, and k = 12 at speeds {2, 3}. Control bars at least 4 px wide. Training mix 30% control, 60% occlusion, 10% hidden bounce, with k drawn with weights proportional to k. Surprises: 12 px vertical offset, a forward jump of half the hidden frames for "early", speed surprises from 2 to 4 and from 4 to 2 px/frame, and 100 placements of A tried per digit before another digit is drawn. Rendering: red digit, mid gray bar (0.5).
+- `configs/data/val_v1.yaml` and `configs/data/test_v1.yaml`: the validation and test sets (next section).
+
+## Validation and test sets
+
+Training uses sequences generated on the fly from the training digits. Validation and test sets are fixed and stored, each built by `make_dataset` from a set config with its own base seed.
+
+**`val_v1`** (1000 sequences): the training mix, with the 5000 held out digits of the MNIST train file. It is used for model selection and early stopping on the next frame loss only, never on occlusion metrics, so the research questions are not tuned on.
+
+**`test_v1`** (22200 sequences), with digits of the MNIST test file (shapes never seen in training):
+
+| Cells | k | Speed (px/frame) | Per cell | Sequences | Purpose |
+| --- | --- | --- | --- | --- | --- |
+| occlusion | 2, 4, 6, 8 | 2, 3, 4 | 400 | 4800 | RQ1 and RQ2: tracking through occlusion and recovery |
+| occlusion | 12 | 2, 3 | 400 | 800 | longest occlusion (does not fit at 4 px/frame) |
+| control | 0 | 2, 3, 4 | 400 | 1200 | same crossing without full occlusion |
+| hidden_bounce | 4, 8 | 2, 3, 4 | 400 | 2400 | plausible reversal, the counterpart of `direction` |
+| blackout | 2, 4, 8 | 2, 3, 4 | 200 | 1800 | missing input instead of an occluder |
+| tuples: direction, offset, early, vanish | 4, 8 | 2, 3, 4 | 100 tuples | 9600 | RQ3: surprise |
+| tuples: speed_fast | 4, 8 | 2 | 100 tuples | 800 | RQ3, B at 4 px/frame |
+| tuples: speed_slow | 4, 8 | 4 | 100 tuples | 800 | RQ3, B at 2 px/frame |
+
+400 sequences per cell give a standard error of about 0.25 px on a mean position error with a spread of 5 px. With 100 tuples per cell, the surprise AUROC has a standard error of about 0.04. On disk, the test set takes about 80 MB, since no frames are stored.
 
 ## Conventions
 
@@ -348,6 +390,7 @@ peekaboo/           the package
     dataset.py      on the fly dataset, sampler, loader
     store.py        stored datasets: write, read, verify
     validate.py     dataset validation checks
+    build.py        validation and test sets from set configs
   viz/              figures
     space_time.py   space time diagrams
     frames.py       contact sheets and GIFs
@@ -361,8 +404,12 @@ scripts/            command line entry points
   check_dataset.py      loader and stored dataset check
   validate_dataset.py   validation report of a dataset
   render_examples.py    contact sheets and GIFs of every condition
+  bench_generator.py    generator and loader timing
+  make_dataset.py       build, write, and validate a val or test set
 configs/            one config file per experiment
   data/base.yaml    generator settings
+  data/val_v1.yaml  validation set
+  data/test_v1.yaml test set
 tests/              unit tests (pytest)
 environment.yml     conda environment "peekaboo"
 pyproject.toml      pytest settings (nothing to install)

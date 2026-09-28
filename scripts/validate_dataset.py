@@ -12,27 +12,8 @@ from peekaboo.data.mnist_pool import build_digit_pool
 from peekaboo.data.render import RenderSettings
 from peekaboo.data.splicing import SURPRISES, sample_surprise_tuple, surprise_speeds
 from peekaboo.data.store import StoredDataset
-from peekaboo.data.validate import CHECKS, ValidationReport, Validator, training_digits, validate_stored
+from peekaboo.data.validate import Validator, format_report, training_digits, validate_stored
 from peekaboo.paths import CONFIGS_DIR
-
-
-def print_report(report: ValidationReport) -> None:
-    """Print one line per check, then the dataset statistics."""
-    summary = report.to_dict()
-    print(f"{'check':>22} {'checked':>8} {'failed':>7}  rule")
-    for name in CHECKS:
-        entry = summary["checks"].get(name)
-        if entry is None:
-            print(f"{name:>22} {'-':>8} {'-':>7}  not applicable here")
-            continue
-        flag = "" if entry["failed"] == 0 else f"   first failures at {entry['first_failures'][:5]}"
-        print(f"{name:>22} {entry['checked']:>8} {entry['failed']:>7}  {entry['rule']}{flag}")
-    print("\nsequences per condition: " + ", ".join(f"{c} {n}" for c, n in summary["conditions"].items()))
-    print("occluded frame share: " + ", ".join(f"{c} {s:.0%}" for c, s in summary["occluded_frame_share"].items()))
-    others = summary["sequences_with_other_occlusions"]
-    if others:
-        print("sequences with another full occlusion outside the window: "
-              + ", ".join(f"{c} {n}/{summary['conditions'][c]}" for c, n in others.items()))
 
 
 def main() -> int:
@@ -86,8 +67,7 @@ def main() -> int:
         print(f"validating {position} stream sequences (split {args.split})\n")
         report = validator.finish()
 
-    print_report(report)
-    print("\nall checks passed" if report.ok else "\nSOME CHECKS FAILED")
+    print(format_report(report))
     return 0 if report.ok else 1
 
 

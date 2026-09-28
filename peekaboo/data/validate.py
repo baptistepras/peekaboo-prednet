@@ -207,6 +207,30 @@ class Validator:
         return self.report
 
 
+def format_report(report: ValidationReport) -> str:
+    """Return the report as text: one line per check, then the dataset statistics."""
+    summary = report.to_dict()
+    lines = [f"{'check':>22} {'checked':>8} {'failed':>7}  rule"]
+    for name in CHECKS:
+        entry = summary["checks"].get(name)
+        if entry is None:
+            lines.append(f"{name:>22} {'-':>8} {'-':>7}  not applicable here")
+            continue
+        flag = "" if entry["failed"] == 0 else f"   first failures at {entry['first_failures'][:5]}"
+        lines.append(f"{name:>22} {entry['checked']:>8} {entry['failed']:>7}  {entry['rule']}{flag}")
+    lines.append("")
+    lines.append("sequences per condition: " + ", ".join(f"{c} {n}" for c, n in summary["conditions"].items()))
+    lines.append("occluded frame share: "
+                 + ", ".join(f"{c} {s:.0%}" for c, s in summary["occluded_frame_share"].items()))
+    others = summary["sequences_with_other_occlusions"]
+    if others:
+        lines.append("sequences with another full occlusion outside the window: "
+                     + ", ".join(f"{c} {n}/{summary['conditions'][c]}" for c, n in others.items()))
+    lines.append("")
+    lines.append("all checks passed" if report.ok else "SOME CHECKS FAILED")
+    return "\n".join(lines)
+
+
 def training_digits(val_size: int, holdout_seed: int) -> set[int]:
     """MNIST train file indices of the training split, which validation sequences must never use."""
     return set(split_indices("train", MNIST_TRAIN_SIZE, val_size, holdout_seed).tolist())

@@ -1,0 +1,9 @@
+# Validation set: model selection and early stopping on next frame loss only (never on occlusion metrics).
+# It follows the training mix, with the held out validation digits.
+name: val_v1
+split: val                   # digits: the 5000 held out digits of the MNIST train file
+base_seed: 1                 # training streams use other seeds and stream names
+generator: configs/data/base.yaml
+
+mix:
+  n: 1000                    # sequences drawn from the training mix (30% control, 60% occlusion, 10% hidden bounce)

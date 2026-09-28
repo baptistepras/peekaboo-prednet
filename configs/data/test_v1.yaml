@@ -1,0 +1,24 @@
+# Test set: one cell per (condition, k, speed), with digits of the MNIST test file (unseen shapes).
+# A tuple is four sequences (possible A and B, impossible AB and BA).
+name: test_v1
+split: test
+base_seed: 2
+generator: configs/data/base.yaml
+
+sequences:
+  # RQ1 and RQ2: the full occlusion grid (k = 12 only fits at 2 and 3 px/frame)
+  - {condition: occlusion, k: [2, 4, 6, 8], speed: [2, 3, 4], n: 400}
+  - {condition: occlusion, k: 12, speed: [2, 3], n: 400}
+  # no full occlusion: the same bar and crossing, with a bar narrower than the digit
+  - {condition: control, speed: [2, 3, 4], n: 400}
+  # plausible reversal behind a bar against a wall, the counterpart of the "direction" surprise
+  - {condition: hidden_bounce, k: [4, 8], speed: [2, 3, 4], n: 400}
+  # missing input instead of an occluder (out of distribution: never seen in training)
+  - {condition: blackout, k: [2, 4, 8], speed: [2, 3, 4], n: 200}
+
+tuples:
+  # RQ3: violation of expectation, in the cells where k leaves room for a change while hidden
+  - {kind: [direction, offset, early, vanish], k: [4, 8], speed: [2, 3, 4], n: 100}
+  # speed surprises keep B at a training speed: 2 -> 4 and 4 -> 2 px/frame
+  - {kind: speed_fast, k: [4, 8], speed: 2, n: 100}
+  - {kind: speed_slow, k: [4, 8], speed: 4, n: 100}
