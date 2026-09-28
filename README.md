@@ -29,7 +29,7 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.7 | On the fly dataset, spawn safe loader, and stored datasets (write, read, verify) | done |
 | 1.8 | Dataset validation: every sequence re-rendered and checked against the generator's rules | done |
 | 1.9 | Contact sheets and GIFs of every condition and surprise | done |
-| 1.10 | Generator benchmark, validation and test sets built from set configs | in review |
+| 1.10 | Generator benchmark, validation and test sets built from set configs | done |
 | 1.11 | PredNet benchmark on the target hardware | next |
 | 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |

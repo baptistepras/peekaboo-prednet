@@ -38,10 +38,13 @@ def runs(mask: np.ndarray) -> list[tuple[int, int]]:
 
 
 def main_reference_frame(spec: SequenceSpec) -> int:
-    """Return a frame inside the main event: the entry frame, or the reappearance if the digit appears from nowhere."""
+    """Return a frame inside the main event: the entry frame, or the last hidden frame if the digit appears from nowhere.
+
+    The reappearance frame itself would not do: a thin, fast digit can be fully visible on it, off the bar.
+    """
     if spec.entry_frame >= 0:
         return spec.entry_frame
-    return spec.actual_reappear_frame
+    return spec.actual_reappear_frame - 1
 
 
 def compute_truth(spec: SequenceSpec, sprite: np.ndarray, thresholds: VisibilityThresholds) -> FrameTruth:
