@@ -27,8 +27,9 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.5 | Conditions (control, occlusion, hidden bounce, blackout) and PLATO style surprise tuples | done |
 | 1.6 | Pixel rendering (observed, amodal, masks) and exact per frame ground truth | done |
 | 1.7 | On the fly dataset, spawn safe loader, and stored datasets (write, read, verify) | done |
-| 1.8 | Dataset validation: every sequence re-rendered and checked against the generator's rules | in review |
-| 1.9 to 1.11 | Contact sheets and GIFs, benchmarks, val and test sets | next |
+| 1.8 | Dataset validation: every sequence re-rendered and checked against the generator's rules | done |
+| 1.9 | Contact sheets and GIFs of every condition and surprise | in review |
+| 1.10 to 1.11 | Benchmarks, val and test sets | next |
 | 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -59,6 +60,7 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m scripts.preview_render` | Renders 300 sequences of the training mix, 50 blackouts, and 10 tuples of each surprise type on real val digits, and checks that the visible fraction, the true center, and the visible ink center measured on the pixels equal the exact ground truth. Also checks that the measured k equals the target and that no other contact with the bar falls inside an analysis window, and counts occlusion sequences with another full occlusion outside the window. Then saves `figures/render_preview.png`: for one sequence per condition and two surprises, a strip of observed frames (with the true center as a cross, cyan when hidden) and a strip of amodal frames. Needs MNIST. Options: `--config`, `--split`, `--n`, `--step`, `--seed`, `--out`. | Differences around 1e-15 or smaller, 0 k mismatches, 0 window intrusions, then `all checks passed`. |
 | `python -m scripts.check_dataset` | Checks the data pipeline on real val digits. (1) Times an on the fly loader (20 batches of 16 sequences with 2 spawn workers by default) and prints the batch shapes. (2) Checks that the workers give exactly the batches of a single process. (3) Writes a small stored dataset (64 training mix sequences and one tuple of each surprise) to `data/datasets/smoke/`, reads it back, verifies every checksum, and compares its samples with the stream. Needs MNIST. Options: `--config`, `--split`, `--workers` (0 for a single process), `--batch-size`, `--batches`, `--seed`, `--out`. | A time per batch and a number of sequences per second, `yes` three times, then `all checks passed`. |
 | `python -m scripts.validate_dataset --data data/datasets/smoke` | Validates a stored dataset: every sequence is re-rendered and checked (see `validate.py` for the list of checks). Prints one line per check with the number of sequences checked and failed, then statistics per condition. Saves the report as `validation.json` in the dataset folder. The generator settings come from the dataset's `info.yaml` (or `--config`). | Every check with 0 failures, then `all checks passed`. |
+| `python -m scripts.render_examples` | Draws one example of every condition and every surprise tuple on real val digits, and saves in `figures/generator/`: a contact sheet (`sheet_<condition>.png`, every other frame, observed above amodal) and a GIF (`<condition>.gif`) per condition; a contact sheet (`sheet_surprise_<kind>.png`, the four sequences A, B, AB, BA one under the other) and a GIF showing the four side by side (`surprise_<kind>.gif`) per surprise; and `overview.png` with all conditions. In every tile, the cross marks the true center (cyan when hidden) and the strip below gives the state. Needs MNIST. Options: `--config`, `--split`, `--index` (another example), `--seed`, `--scale`, `--step`, `--fps`, `--out`. | `saved 21 files in .../figures/generator` and their list. |
 | `python -m scripts.validate_dataset --stream` | Same checks on sequences generated on the fly: 300 from the training mix and 5 tuples of each surprise type, plus a determinism check (the same index gives the same spec). Options: `--config`, `--split`, `--n`, `--tuples`, `--seed`. | Every check with 0 failures, then `all checks passed`. |
 
 ## Modules
@@ -267,6 +269,15 @@ The report also gives the number of sequences per condition and per cell, the sh
 
 Space time diagrams shared by the report scripts: x horizontally, frames downward, the bar as a gray band, and the ink of each frame colored by visibility (green visible, orange partial, red fully hidden, black blackout, nothing when the digit is absent). `draw_spec(ax, spec, sprite, thresholds, title)` also marks the event frames, including the splice.
 
+### `peekaboo/viz/frames.py`
+
+Contact sheets and GIFs, drawn with Pillow so every pixel stays sharp. A frame tile shows the observed frame (what the models see), optionally the amodal frame below it, the true center of the digit as a cross (white when some ink is visible, cyan when hidden), and a strip colored by state (green visible, orange partial, red occluded, gray blackout, dark absent).
+
+- `frame_tile(rendered, t, scale, show_amodal)`: one frame.
+- `contact_sheet(rendered, title, step, scale, columns, show_amodal)`: every `step`-th frame in a grid, with frame numbers and a legend.
+- `animation_frames(renders, labels, scale, show_amodal)` and `save_gif(images, path, fps)`: one image per time step with several sequences side by side (for example the four sequences of a surprise tuple), saved as a looping GIF.
+- `stack(images)`: stacks sheets vertically.
+
 ### `peekaboo/data/spec.py`
 
 `SequenceSpec` is the compact, complete description of one sequence: identity and seed, digit, per frame positions and velocities, whether the digit is present (it disappears after a "vanish" surprise), occluder bar, blackout frames, condition, k and speed, event frames (entry, onset, expected and actual reappearance, exit), analysis window, and for surprises the splice frame, tuple id, and role (A, B, AB, BA). Rendering a spec is deterministic, so test sets can be stored as specs. `metadata()` gives a flat row for a metadata table, and `to_dict()` and `from_dict()` convert to and from JSON.
@@ -290,6 +301,10 @@ Report on conditions, training mix, and surprise tuples with real digits (see th
 ### `scripts/preview_render.py`
 
 Consistency check between the pixels and the exact ground truth on real digits, and a preview of the rendered frames (see the Commands table).
+
+### `scripts/render_examples.py`
+
+Contact sheets and GIFs of one example per condition and per surprise (see the Commands table).
 
 ### `scripts/validate_dataset.py`
 
@@ -335,6 +350,7 @@ peekaboo/           the package
     validate.py     dataset validation checks
   viz/              figures
     space_time.py   space time diagrams
+    frames.py       contact sheets and GIFs
 scripts/            command line entry points
   env_check.py      environment report
   prepare_mnist.py  MNIST download and pool report
@@ -344,6 +360,7 @@ scripts/            command line entry points
   preview_render.py     pixels vs ground truth check and preview
   check_dataset.py      loader and stored dataset check
   validate_dataset.py   validation report of a dataset
+  render_examples.py    contact sheets and GIFs of every condition
 configs/            one config file per experiment
   data/base.yaml    generator settings
 tests/              unit tests (pytest)
