@@ -29,7 +29,7 @@ def test_condition_rules(condition: str, index: int, pool: DigitPool, settings: 
     assert (f[spec.exit_frame + 1:spec.exit_frame + cs.n_post + 1] == 1).all()
 
     if condition in ("control", "blackout"):
-        assert spec.bar_width < spec.ink_width
+        assert cs.control_min_width <= spec.bar_width < spec.ink_width
         assert (f > occ_max).all()  # never fully hidden by the bar
     if condition in ("occlusion", "hidden_bounce"):
         event = find_crossing(f, cs.thresholds, frame=spec.onset_frame)

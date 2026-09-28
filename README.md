@@ -25,7 +25,8 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.3 | Sequence spec and bouncing trajectories built from an anchor frame | done |
 | 1.4 | Occluder bar: exact visible fractions and a placement solver for a target occlusion duration | done |
 | 1.5 | Conditions (control, occlusion, hidden bounce, blackout) and PLATO style surprise tuples | done |
-| 1.6 to 1.11 | Data generator (rendering, storage, validation, benchmarks) | next |
+| 1.6 | Pixel rendering (observed, amodal, masks) and exact per frame ground truth | in review |
+| 1.7 to 1.11 | Data generator (storage, validation, benchmarks) | next |
 | 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -53,6 +54,7 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m scripts.plot_trajectories` | Samples 12 random trajectories with the motion settings of `configs/data/base.yaml` and saves their paths to `figures/trajectories.png`, with wall bounces (red crosses) and anchor frames (black stars). Options: `--config`, `--n`, `--seed`, `--out`. | `saved .../figures/trajectories.png`. Paths stay inside the frame and mirror off the borders. |
 | `python -m scripts.check_occluder` | For every cell (k, speed) of `configs/data/base.yaml`, places the occluder for 200 random val digits and prints one line per cell: share of digits placed, mean attempts, mean ink width of the placed digits (compare with the pool mean on the first line to spot a bias), bar width range (min, median, max), bar position range, onset frame range, and share of fully occluded frames. Saves space time diagrams to `figures/occluder_examples.png`. Needs MNIST (run `prepare_mnist` first). Options: `--config`, `--split`, `--n`, `--seed`, `--out`. | One line per cell, 100% placed except in the cells k=8 at v=4 and k=12 at v=3, where the widest digits (about 1 to 2%) do not fit. |
 | `python -m scripts.check_conditions` | Generates 100 sequences of each condition, 1000 from the training mix, and 20 surprise tuples per surprise type and cell (k in {4, 8}, speed in {2, 4}) on real val digits. Prints, per condition, the share built, the k values, the bar widths, the share of fully hidden frames, and the share of sequences with another full occlusion outside the analysis window. Prints the condition shares of the training mix and its share of hidden frames. Prints, per surprise type, the share of tuples built, whether every splice happens while hidden, and how much the reappearance moves. Saves `figures/conditions_examples.png` and `figures/surprise_tuples.png`. Needs MNIST. Options: `--config`, `--split`, `--n`, `--n-mix`, `--n-tuples`, `--seed`, `--out`. | Conditions built at or near 100%, training mix close to 30/60/10, about 20% hidden frames in occlusion sequences, `yes` in the splice column for every surprise. |
+| `python -m scripts.preview_render` | Renders 300 sequences of the training mix, 50 blackouts, and 10 tuples of each surprise type on real val digits, and checks that the visible fraction, the true center, and the visible ink center measured on the pixels equal the exact ground truth. Also checks that the measured k equals the target and that no other contact with the bar falls inside an analysis window, and counts occlusion sequences with another full occlusion outside the window. Then saves `figures/render_preview.png`: for one sequence per condition and two surprises, a strip of observed frames (with the true center as a cross, cyan when hidden) and a strip of amodal frames. Needs MNIST. Options: `--config`, `--split`, `--n`, `--step`, `--seed`, `--out`. | Differences around 1e-15 or smaller, 0 k mismatches, 0 window intrusions, then `all checks passed`. |
 
 ## Modules
 
@@ -129,7 +131,7 @@ Turns placements into complete sequence specs, one per condition:
 
 | Condition | What happens | Used in |
 |---|---|---|
-| `control` | The bar is **narrower than the digit**. The digit passes behind it but is never fully hidden (k = 0). Everything else matches the occlusion sequences: a bar is present, the crossing has the same timing, and the same window rules apply. | train, test |
+| `control` | The bar is **narrower than the digit** (and at least 4 px wide). The digit passes behind it but is never fully hidden (k = 0). Everything else matches the occlusion sequences: a bar is present, the crossing has the same timing, and the same window rules apply. | train, test |
 | `occlusion` | The digit crosses behind the bar and is fully hidden for exactly k frames. | train, test |
 | `hidden_bounce` | The bar stands **against a wall**. The digit bounces off the wall while hidden and comes back out on the side it entered. Exactly one wall bounce happens around the event, while the digit is fully hidden. | train (10%), test |
 | `blackout` | A control sequence whose frames are all set to zero for k frames, starting at the most covered frame. The bar stays present, as in training, and only the input disappears. | test |
@@ -141,7 +143,7 @@ Why the control uses a narrow bar: at 2 to 4 px/frame for 40 frames, the digit s
 - `plan_condition`, `spec_from_plan`, `make_spec`: the steps behind `sample_spec`, reused by the surprise tuples.
 - `spec_visible_fraction(spec, sprite)`: visible ink fraction per frame, 0 when the digit is absent or during a blackout.
 
-Each spec records the key frames of its event (entry, onset, expected and actual reappearance, exit) and its **analysis window** (8 frames before entry to 4 frames after exit). Metrics are computed inside this window. The digit may meet the bar again outside it, and those extra occlusions will be labeled in the ground truth (task 1.6).
+Each spec records the key frames of its event (entry, onset, expected and actual reappearance, exit) and its **analysis window** (8 frames before entry to 4 frames after exit). Metrics are computed inside this window. The digit may meet the bar again outside it: about a third of the occlusion sequences contain a second full occlusion there. The ground truth labels those frames as "other" episodes (see `truth.py`), so metrics can leave them out.
 
 ### `peekaboo/data/splicing.py`
 
@@ -167,6 +169,32 @@ A hidden digit is not drawn, so the frames at the splice are identical and the c
 
 - `sample_surprise_tuple(pool, settings, split, index, base_seed, kind, k, speed)`: one tuple, fully determined by its arguments. `tuple.specs()` returns A, B, AB, BA. Each spec carries `tuple_id`, `tuple_role`, and `surprise_frame` (the splice frame).
 
+### `peekaboo/data/render.py`
+
+Turns a spec into pixels. Frames are 64 x 96, stored as uint8.
+
+- `render_amodal(spec, sprite)`: the **amodal** frames, one channel with the digit intensity, as if there were no bar and no blackout. Empty where the digit is absent (after a vanish).
+- `compose_observed(amodal, spec, settings)`: the **observed** RGB frames that the models see. The digit is red (its intensity in the red channel, the other channels at 0), the background black, the bar a flat mid gray (128 on all channels) drawn on top, and blackout frames are all zero, bar included. The red and gray coding makes the digit and the bar trivial to tell apart, which the detector of the programmed baselines relies on.
+- `modal_mask(amodal, spec)`: the ink pixels visible on screen.
+- `render_sequence(spec, sprite, settings, thresholds)`: all of the above plus the ground truth, as a `RenderedSequence`.
+- `measure_from_pixels(rendered)`: the visible fraction and both centers measured on the pixels, used to check the exact ground truth.
+
+Only the amodal frames need to be stored: the observed frames and the masks are rebuilt exactly from them and the spec (decision D5).
+
+### `peekaboo/data/truth.py`
+
+The ground truth of every frame, computed exactly from the spec and the sprite, without pixels, so it is cheap enough to compute during training. `compute_truth(spec, sprite, thresholds)` returns a `FrameTruth` with, per frame:
+
+- `center`: the true (amodal) position of the digit, the intensity weighted centroid of all its ink, in pixels, even while hidden (NaN when the digit is absent);
+- `modal_center`: the centroid of the visible ink only (NaN when nothing is visible), which is what a readout from the observed or predicted frames can recover during partial occlusion;
+- `velocity`: the velocity leaving the frame, in px/frame;
+- `visible_fraction`: the share of the ink visible on screen;
+- `state`: `visible`, `partial`, `occluded`, `blackout`, or `absent`;
+- `episode`: whether the frame is part of the **main** event (the contact with the bar that the sequence was built around), of **another** contact outside the analysis window, or of neither;
+- `in_window`: whether the frame is inside the analysis window.
+
+`sequence_summary(truth)` gives per sequence counts: the measured k of the main event, the number of other contacts and other full occlusions, and the number of other contact frames inside the window, which must be 0.
+
 ### `peekaboo/viz/space_time.py`
 
 Space time diagrams shared by the report scripts: x horizontally, frames downward, the bar as a gray band, and the ink of each frame colored by visibility (green visible, orange partial, red fully hidden, black blackout, nothing when the digit is absent). `draw_spec(ax, spec, sprite, thresholds, title)` also marks the event frames, including the splice.
@@ -191,13 +219,17 @@ Report on the placement solver with real digits, and space time diagrams: x hori
 
 Report on conditions, training mix, and surprise tuples with real digits (see the Commands table), with space time diagrams of two sequences per condition and one tuple per surprise type.
 
+### `scripts/preview_render.py`
+
+Consistency check between the pixels and the exact ground truth on real digits, and a preview of the rendered frames (see the Commands table).
+
 ### `scripts/env_check.py`
 
 The environment report described in the Commands table.
 
 ## Configs
 
-- `configs/data/base.yaml`: generator settings shared by all splits. Frames of 64 x 96 pixels (height x width), sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the bar, 4 after it leaves, and no wall bounce in the 2 frames around entry and exit. Visibility thresholds: occluded at most 2% visible ink, visible at least 95%. Occlusion durations k in {2, 4, 6, 8} at speeds {2, 3, 4}, and k = 12 at speeds {2, 3}. Training mix 30% control, 60% occlusion, 10% hidden bounce, with k drawn with weights proportional to k. Surprises: 12 px vertical offset, and a forward jump of half the hidden frames for "early".
+- `configs/data/base.yaml`: generator settings shared by all splits. Frames of 64 x 96 pixels (height x width), sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the bar, 4 after it leaves, and no wall bounce in the 2 frames around entry and exit. Visibility thresholds: occluded at most 2% visible ink, visible at least 95%. Occlusion durations k in {2, 4, 6, 8} at speeds {2, 3, 4}, and k = 12 at speeds {2, 3}. Control bars at least 4 px wide. Training mix 30% control, 60% occlusion, 10% hidden bounce, with k drawn with weights proportional to k. Surprises: 12 px vertical offset, and a forward jump of half the hidden frames for "early". Rendering: red digit, mid gray bar (0.5).
 
 ## Conventions
 
@@ -220,6 +252,8 @@ peekaboo/           the package
     occluder.py     visible fractions and the placement solvers
     conditions.py   control, occlusion, hidden bounce, blackout
     splicing.py     PLATO style surprise tuples
+    render.py       observed and amodal frames, masks
+    truth.py        exact per frame ground truth
   viz/              figures
     space_time.py   space time diagrams
 scripts/            command line entry points
@@ -228,6 +262,7 @@ scripts/            command line entry points
   plot_trajectories.py  visual check of the motion model
   check_occluder.py     placement report and space time diagrams
   check_conditions.py   conditions and surprise tuples report
+  preview_render.py     pixels vs ground truth check and preview
 configs/            one config file per experiment
   data/base.yaml    generator settings
 tests/              unit tests (pytest)

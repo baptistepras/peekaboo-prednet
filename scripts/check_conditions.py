@@ -122,7 +122,7 @@ def main() -> int:
             draw_spec(axes[row, col], spec, pool.sprite(spec.digit_index), thresholds,
                       f"{condition}, k={spec.k_target}, v={spec.speed}, bar {spec.bar_width} px")
     fig.suptitle("Conditions: green visible, orange partial, red hidden, black blackout, gray band = bar", fontsize=9)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.97))  # keep room for the title
     fig.savefig(args.out / "conditions_examples.png", dpi=110)
 
     kinds = [k for k in SURPRISES if k in tuple_examples]
@@ -135,7 +135,7 @@ def main() -> int:
                       f"{kind}: {role} (k={spec.k_target}, v={spec.speed})")
     fig.suptitle("Surprise tuples: AB = start of A + end of B, BA = start of B + end of A, spliced while hidden",
                  fontsize=10)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.985))  # keep room for the title
     fig.savefig(args.out / "surprise_tuples.png", dpi=100)
     print(f"\nsaved {args.out / 'conditions_examples.png'} and {args.out / 'surprise_tuples.png'}")
     return 0 if all_hidden else 1
