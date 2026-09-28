@@ -1,0 +1,7 @@
+# PredNet with 4 layers, as first proposed in the brief: top layer at 8 x 12, receptive field of 38 px per step.
+# Kept for the depth ablation and the benchmark.
+model: prednet
+stack_sizes: [3, 32, 64, 128]
+kernel_size: 3
+pixel_max: 1.0
+layer_loss_weights: L0

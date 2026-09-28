@@ -1,0 +1,7 @@
+# PredNet with 5 layers (decision D9): top layer at 4 x 6 for 64 x 96 frames, receptive field of 78 px per step.
+# About 3.1 million parameters, the same budget as the 4 layer model below.
+model: prednet
+stack_sizes: [3, 16, 32, 64, 128]   # channels of A and R per layer, the first is RGB
+kernel_size: 3
+pixel_max: 1.0
+layer_loss_weights: L0               # loss on the pixel layer only ("Lall" puts 0.1 on the upper layers)

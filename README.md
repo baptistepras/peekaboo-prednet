@@ -30,8 +30,8 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.8 | Dataset validation: every sequence re-rendered and checked against the generator's rules | done |
 | 1.9 | Contact sheets and GIFs of every condition and surprise | done |
 | 1.10 | Generator benchmark, validation and test sets built from set configs | done |
-| 1.11 | PredNet benchmark on the target hardware | next |
-| 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
+| 1.11 | PredNet implementation and training benchmark on the target hardware | in review |
+| 2 | PredNet ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |
 
 ## Setup
@@ -64,6 +64,8 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m scripts.bench_generator` | Times the generator on real val digits: milliseconds per sequence for each stage of a training sequence (spec, amodal frames, observed frames, ground truth), spec generation per condition, tuple generation per surprise type, then loader throughput with 0, 2, and 4 workers. Options: `--config`, `--split`, `--n`, `--tuples`, `--workers` (for example `0,2,4,8`), `--batch-size`, `--batches`, `--seed`. | A few milliseconds per sequence, and several hundred sequences per second with workers. |
 | `python -m scripts.make_dataset --config configs/data/val_v1.yaml` | Builds the validation set (1000 sequences of the training mix, held out digits), writes it to `data/datasets/val_v1/`, then validates it and saves `validation.json` next to it. Options: `--overwrite` to rebuild, `--limit-per-cell N` for a quick trial with every cell capped at N (written as `<name>_limitN`), `--no-validate`. | A progress bar, the size on disk, then the validation report ending with `all checks passed`. |
 | `python -m scripts.make_dataset --config configs/data/test_v1.yaml` | Builds the test set (22200 sequences, see "Validation and test sets" below) to `data/datasets/test_v1/` and validates it. | Same, for the test set. |
+| `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.bench_prednet` | Trains PredNet (5 layers by default) for 10 warmup steps and 200 timed steps on the on the fly training stream, on the auto selected device. Prints the compute time and data wait per step, the sequences per second, the peak memory, the estimated time for 10k, 30k, and 50k steps, and the loss. Saves in `runs/bench/<model>_b<batch>_t<frames>_<device>/` a copy of the settings, `results.json`, `loss.png`, and `predictions.png` (actual and predicted frames of 3 validation sequences, with the error of copying the last frame for reference; needs `val_v1`). With the variable at 0, an operation MPS does not support fails instead of silently running on the CPU. Options: `--model` (for example `configs/models/prednet_4l.yaml`), `--steps`, `--warmup`, `--batch-size`, `--seq-len`, `--workers`, `--lr`, `--device`, `--seed`, `--out`. | Timings, a decreasing loss, and `saved in ...`. After 200 steps, PredNet is not expected to beat copying the last frame yet. |
+| `python -m scripts.bench_prednet --device cpu --steps 5 --warmup 1 --batch-size 4 --seq-len 10 --workers 0` | CPU fallback check: the same code runs without a GPU. | A few steps and `saved in ...`. |
 | `python -m scripts.render_examples` | Draws one example of every condition and every surprise tuple on real val digits, and saves in `figures/generator/`: a contact sheet (`sheet_<condition>.png`, every other frame, observed above amodal) and a GIF (`<condition>.gif`) per condition; a contact sheet (`sheet_surprise_<kind>.png`, the four sequences A, B, AB, BA one under the other) and a GIF showing the four side by side (`surprise_<kind>.gif`) per surprise; and `overview.png` with all conditions. In every tile, the cross marks the true center (cyan when hidden) and the strip below gives the state. Needs MNIST. Options: `--config`, `--split`, `--index` (another example), `--seed`, `--scale`, `--step`, `--fps`, `--out`. | `saved 21 files in .../figures/generator` and their list. |
 | `python -m scripts.validate_dataset --stream` | Same checks on sequences generated on the fly: 300 from the training mix and 5 tuples of each surprise type, plus a determinism check (the same index gives the same spec). Options: `--config`, `--split`, `--n`, `--tuples`, `--seed`. | Every check with 0 failures, then `all checks passed`. |
 
@@ -277,6 +279,22 @@ Builds the specs of a validation or test set from a **set config** (see "Validat
 - `cells(set_config)` lists the cells and `count_sequences(set_config)` counts the sequences (a tuple counts as four).
 - `build_specs(set_config, pool, settings, limit_per_cell=None)`: builds every spec. Each cell has its own random stream, derived from the set's base seed and the cell, so a set is rebuilt identically and cells do not depend on each other. Tuple ids are numbered across the whole set, and the four sequences of a tuple share one id.
 
+### `peekaboo/models/prednet.py`
+
+PredNet (Lotter, Kreiman, and Cox, ICLR 2017), reimplemented in PyTorch from the paper and checked against the original Keras code (read only reference, no code copied). Each layer l has a target A_l, a prediction Ahat_l, an error E_l, and a convolutional LSTM representation R_l.
+
+- **Errors**: E_l = [ReLU(A_l - Ahat_l), ReLU(Ahat_l - A_l)], split into positive and negative populations.
+- **Predictions**: Ahat_l = ReLU(conv(R_l)). For l = 0, the prediction is also clipped at the maximum pixel value (SatLU).
+- **Targets**: A_0 is the frame, and A_{l+1} = maxpool(ReLU(conv(E_l))).
+- **Representations**: R_l is a convolutional LSTM updated from E_l and R_l at the previous step and from the upsampled R_{l+1} at the current step. Its gates use the Keras 2 hard sigmoid, clip(0.2 x + 0.5, 0, 1), with no peepholes. PyTorch's own `hardsigmoid` has a different slope.
+- **Update order**: each step first updates R from the top layer down, then computes Ahat, E, and A from the bottom up.
+- **Loss**: the weighted mean activity of the error units. With "L0" the pixel layer has weight 1 and the others 0. The first step has weight 0 and the others 1 / (T - 1).
+- **Initialization**: Glorot uniform kernels and zero biases, as in Keras.
+
+`model(frames)` takes frames (B, T, 3, H, W) in [0, 1] and returns `prediction` (B, T, 3, H, W), where `prediction[:, t]` predicts frame t from the frames before it, and `layer_errors` (B, T, L). `return_states=True` also returns R and E of every layer at every step, for the probes and the error maps. `extrapolate_from=s` switches to closed loop from step s: the previous prediction replaces the input, as in the original code. `model.loss(layer_errors)` gives the training loss.
+
+The configs `configs/models/prednet_5l.yaml` (channels 3, 16, 32, 64, 128) and `prednet_4l.yaml` (3, 32, 64, 128) both have about 3.1 million parameters. The 5 layer model reaches a 4 x 6 top layer on 64 x 96 frames, with a receptive field of 78 px per step, against 38 px for the 4 layer model (decision D9).
+
 ### `peekaboo/viz/space_time.py`
 
 Space time diagrams shared by the report scripts: x horizontally, frames downward, the bar as a gray band, and the ink of each frame colored by visibility (green visible, orange partial, red fully hidden, black blackout, nothing when the digit is absent). `draw_spec(ax, spec, sprite, thresholds, title)` also marks the event frames, including the splice.
@@ -313,6 +331,10 @@ Report on conditions, training mix, and surprise tuples with real digits (see th
 ### `scripts/preview_render.py`
 
 Consistency check between the pixels and the exact ground truth on real digits, and a preview of the rendered frames (see the Commands table).
+
+### `scripts/bench_prednet.py`
+
+Training benchmark of PredNet on the target device, with a short run whose loss curve and predictions are saved (see the Commands table).
 
 ### `scripts/bench_generator.py`
 
@@ -391,6 +413,8 @@ peekaboo/           the package
     store.py        stored datasets: write, read, verify
     validate.py     dataset validation checks
     build.py        validation and test sets from set configs
+  models/           video prediction models
+    prednet.py      PredNet
   viz/              figures
     space_time.py   space time diagrams
     frames.py       contact sheets and GIFs
@@ -406,10 +430,13 @@ scripts/            command line entry points
   render_examples.py    contact sheets and GIFs of every condition
   bench_generator.py    generator and loader timing
   make_dataset.py       build, write, and validate a val or test set
+  bench_prednet.py      PredNet training benchmark
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set
   data/test_v1.yaml test set
+  models/prednet_5l.yaml  PredNet, 5 layers
+  models/prednet_4l.yaml  PredNet, 4 layers
 tests/              unit tests (pytest)
 environment.yml     conda environment "peekaboo"
 pyproject.toml      pytest settings (nothing to install)
