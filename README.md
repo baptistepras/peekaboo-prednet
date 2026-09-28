@@ -26,7 +26,8 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.4 | Occluder bar: exact visible fractions and a placement solver for a target occlusion duration | done |
 | 1.5 | Conditions (control, occlusion, hidden bounce, blackout) and PLATO style surprise tuples | done |
 | 1.6 | Pixel rendering (observed, amodal, masks) and exact per frame ground truth | done |
-| 1.7 to 1.11 | Data generator (storage, validation, benchmarks) | next |
+| 1.7 | On the fly dataset, spawn safe loader, and stored datasets (write, read, verify) | in review |
+| 1.8 to 1.11 | Dataset validation, figures, benchmarks, val and test sets | next |
 | 2 | PredNet, ablations, ConvLSTM, trackers, training | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -55,6 +56,7 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m scripts.check_occluder` | For every cell (k, speed) of `configs/data/base.yaml`, places the occluder for 200 random val digits and prints one line per cell: share of digits placed, mean attempts, mean ink width of the placed digits (compare with the pool mean on the first line to spot a bias), bar width range (min, median, max), bar position range, onset frame range, and share of fully occluded frames. Saves space time diagrams to `figures/occluder_examples.png`. Needs MNIST (run `prepare_mnist` first). Options: `--config`, `--split`, `--n`, `--seed`, `--out`. | One line per cell, 100% placed except in the cells k=8 at v=4 and k=12 at v=3, where the widest digits (about 1 to 2%) do not fit. |
 | `python -m scripts.check_conditions` | Generates 100 sequences of each condition, 1000 from the training mix, and 20 surprise tuples per surprise type and cell (k in {4, 8}, speed in {2, 4}, keeping only the speeds allowed for each surprise) on real val digits. Prints, per condition, the share built, the k values, the bar widths, the share of fully hidden frames, and the share of sequences with another full occlusion outside the analysis window. Prints the condition shares of the training mix and its share of hidden frames. Prints, per surprise type, the share of tuples built, whether every splice happens while hidden, and how much the reappearance moves. Saves `figures/conditions_examples.png` and `figures/surprise_tuples.png`. Needs MNIST. Options: `--config`, `--split`, `--n`, `--n-mix`, `--n-tuples`, `--seed`, `--out`. | Conditions built at or near 100%, training mix close to 30/60/10, about 20% hidden frames in occlusion sequences, `yes` in the splice column for every surprise. |
 | `python -m scripts.preview_render` | Renders 300 sequences of the training mix, 50 blackouts, and 10 tuples of each surprise type on real val digits, and checks that the visible fraction, the true center, and the visible ink center measured on the pixels equal the exact ground truth. Also checks that the measured k equals the target and that no other contact with the bar falls inside an analysis window, and counts occlusion sequences with another full occlusion outside the window. Then saves `figures/render_preview.png`: for one sequence per condition and two surprises, a strip of observed frames (with the true center as a cross, cyan when hidden) and a strip of amodal frames. Needs MNIST. Options: `--config`, `--split`, `--n`, `--step`, `--seed`, `--out`. | Differences around 1e-15 or smaller, 0 k mismatches, 0 window intrusions, then `all checks passed`. |
+| `python -m scripts.check_dataset` | Checks the data pipeline on real val digits. (1) Times an on the fly loader (20 batches of 16 sequences with 2 spawn workers by default) and prints the batch shapes. (2) Checks that the workers give exactly the batches of a single process. (3) Writes a small stored dataset (64 training mix sequences and one tuple of each surprise) to `data/datasets/smoke/`, reads it back, verifies every checksum, and compares its samples with the stream. Needs MNIST. Options: `--config`, `--split`, `--workers` (0 for a single process), `--batch-size`, `--batches`, `--seed`, `--out`. | A time per batch and a number of sequences per second, `yes` three times, then `all checks passed`. |
 
 ## Modules
 
@@ -181,7 +183,7 @@ Turns a spec into pixels. Frames are 64 x 96, stored as uint8.
 - `render_sequence(spec, sprite, settings, thresholds)`: all of the above plus the ground truth, as a `RenderedSequence`.
 - `measure_from_pixels(rendered)`: the visible fraction and both centers measured on the pixels, used to check the exact ground truth.
 
-Only the amodal frames need to be stored: the observed frames and the masks are rebuilt exactly from them and the spec (decision D5).
+The observed frames and the masks are rebuilt exactly from the amodal frames and the spec, and the amodal frames from the spec and the sprite. Stored datasets therefore keep no frames at all (see `store.py`).
 
 ### `peekaboo/data/truth.py`
 
@@ -196,6 +198,43 @@ The ground truth of every frame, computed exactly from the spec and the sprite, 
 - `in_window`: whether the frame is inside the analysis window.
 
 `sequence_summary(truth)` gives per sequence counts: the measured k of the main event, the number of other contacts and other full occlusions, and the number of other contact frames inside the window, which must be 0.
+
+### `peekaboo/data/dataset.py`
+
+PyTorch datasets. Every sample is a dictionary of tensors with the same keys, whatever its source:
+
+| Key | Shape and type | Content |
+| --- | --- | --- |
+| `frames` | (T, 3, H, W) uint8 | observed frames, what the models see |
+| `amodal` | (T, 1, H, W) uint8 | amodal frames, only if `include_amodal=True` |
+| `center`, `modal_center` | (T, 2) float32 | true and visible ink centers, (y, x) in pixels, NaN when undefined |
+| `velocity` | (T, 2) float32 | px/frame |
+| `visible_fraction` | (T,) float32 | share of the ink visible on screen |
+| `state`, `episode` | (T,) int64 | indices into `STATE_NAMES` and `EPISODE_*` of `truth.py` |
+| `in_window` | (T,) bool | analysis window |
+| `condition`, `tuple_role`, `surprise_type` | int64 | indices into `CONDITION_NAMES`, `ROLE_NAMES`, `SURPRISE_NAMES` |
+| `index`, `k_target`, `speed`, event frames, `window_start`, `window_end`, `surprise_frame`, `tuple_id` | int64 | from the spec (-1 when unset) |
+
+- `OnTheFlyDataset(pool, settings, render_settings, split, base_seed, ...)`: an endless stream for training. Sample `i` is always the same sequence, built from `(base_seed, split, i)`, whichever worker builds it, so no worker seeding is needed and a run can resume at any index. Condition, k, and speed can be fixed to restrict the stream to one cell.
+- `IndexRangeSampler(start, count)` and `make_loader(dataset, batch_size, start, count, num_workers)`: a loader over indices `[start, start + count)`. Training step `s` with batch size `b` can start at `s * b`, so every sample is new and the order is reproducible. Workers always use spawn, the macOS default, so what works on the Mac also works on the cluster.
+- `prepare_batch(batch, device)`: moves a batch to the device and turns the frames into float32 in [0, 1] there. Frames stay uint8 until then, which makes worker transfers four times smaller.
+
+### `peekaboo/data/store.py`
+
+Validation and test sets as small folders under `data/datasets/<name>/`:
+
+| File | Content |
+| --- | --- |
+| `specs.jsonl` | one `SequenceSpec` per line, in dataset order |
+| `sprites.npz` | the sprites of the digits used, so reading a set does not need MNIST |
+| `truth.npz` | the exact ground truth of every frame, stacked over sequences |
+| `metadata.parquet` | one row per sequence: spec fields, summary counts, and CRC32 checksums of its amodal and observed frames |
+| `info.yaml` | format version, colors, thresholds, and how the set was built (generator config, seed) |
+
+**No frames are stored.** Rendering is exact and costs about a millisecond per sequence, and storing frames would take about 2.5 GB for 10,000 test sequences of 64 x 96, against a few MB this way. The checksums prove that the frames rendered today are the frames rendered when the set was written, even if the code changes later. This refines decision D5, which planned to store the amodal frames.
+
+- `write_dataset(directory, specs, pool, render_settings, thresholds, info, overwrite=False)`: writes a set. It builds the folder next to its destination and moves it in place only when complete, so an interrupted write never leaves a half written set.
+- `StoredDataset(directory)`: reads a set and returns the same samples as `OnTheFlyDataset` for the same specs. `verify(i)` checks the checksums of sequence `i`, and `metadata` is the table as a pandas DataFrame.
 
 ### `peekaboo/viz/space_time.py`
 
@@ -224,6 +263,10 @@ Report on conditions, training mix, and surprise tuples with real digits (see th
 ### `scripts/preview_render.py`
 
 Consistency check between the pixels and the exact ground truth on real digits, and a preview of the rendered frames (see the Commands table).
+
+### `scripts/check_dataset.py`
+
+Speed and determinism of the on the fly loader, and a full write, read, and verify cycle of a stored dataset (see the Commands table).
 
 ### `scripts/env_check.py`
 
@@ -256,6 +299,8 @@ peekaboo/           the package
     splicing.py     PLATO style surprise tuples
     render.py       observed and amodal frames, masks
     truth.py        exact per frame ground truth
+    dataset.py      on the fly dataset, sampler, loader
+    store.py        stored datasets: write, read, verify
   viz/              figures
     space_time.py   space time diagrams
 scripts/            command line entry points
@@ -265,6 +310,7 @@ scripts/            command line entry points
   check_occluder.py     placement report and space time diagrams
   check_conditions.py   conditions and surprise tuples report
   preview_render.py     pixels vs ground truth check and preview
+  check_dataset.py      loader and stored dataset check
 configs/            one config file per experiment
   data/base.yaml    generator settings
 tests/              unit tests (pytest)
