@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from peekaboo.data.occluder import STATE_OCCLUDED
 from peekaboo.data.render import RenderedSequence
+from peekaboo.data.spec import SequenceSpec
 from peekaboo.data.truth import STATE_BLACKOUT, STATE_NAMES
 
 STATE_RGB = {0: (46, 160, 67), 1: (255, 140, 0), 2: (220, 50, 47), 3: (150, 150, 150), 4: (60, 60, 60)}
@@ -28,6 +29,18 @@ def font(size: int = 11) -> ImageFont.ImageFont:
         return ImageFont.load_default(size=size)
     except TypeError:
         return ImageFont.load_default()
+
+
+def describe(spec: SequenceSpec) -> str:
+    """A one line description of a sequence and its event frames."""
+    parts = [f"{spec.condition}", f"digit {spec.label}", f"k={spec.k_target}", f"v={spec.speed}",
+             f"bar {spec.bar_width} px"]
+    for name, value in (("entry", spec.entry_frame), ("onset", spec.onset_frame),
+                        ("reappears", spec.actual_reappear_frame), ("expected", spec.expected_reappear_frame),
+                        ("splice", spec.surprise_frame)):
+        if value >= 0 and not (name == "expected" and value == spec.actual_reappear_frame):
+            parts.append(f"{name} t={value}")
+    return ", ".join(parts)
 
 
 def upscale(image: np.ndarray, scale: int) -> np.ndarray:

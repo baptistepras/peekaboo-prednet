@@ -1,7 +1,7 @@
 """Benchmark PredNet training on the selected device: time per step, data wait, memory, and a short training run.
 
 Results go to runs/bench/<model>_b<batch>_t<frames>_<device>/: a copy of the settings, results.json, the loss
-curve, and predictions on validation sequences. After a few hundred steps the predictions are still rough: they
+curve, predictions on validation sequences, and the trained model (model.pt, for scripts/show_predictions.py). After a few hundred steps the predictions are still rough: they
 show that the whole pipeline works, not how well PredNet does.
 """
 
@@ -28,6 +28,7 @@ from peekaboo.device import describe_device, get_device, synchronize
 from peekaboo.models.prednet import PredNet, PredNetConfig, count_parameters
 from peekaboo.paths import CONFIGS_DIR, DATASETS_DIR, RUNS_DIR
 from peekaboo.seeding import seed_everything
+from peekaboo.train.checkpoint import save_checkpoint
 
 
 def memory_bytes(device: torch.device) -> int | None:
@@ -107,8 +108,8 @@ def main() -> int:
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     run_dir = args.out / f"{args.model.stem}_b{args.batch_size}_t{args.seq_len}_{device.type}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    save_config({"model": model_config, "data": data_config, "args": {k: str(v) for k, v in vars(args).items()}},
-                run_dir / "config.yaml")
+    run_config = {"model": model_config, "data": data_config, "args": {k: str(v) for k, v in vars(args).items()}}
+    save_config(run_config, run_dir / "config.yaml")
     print(f"{args.model.stem}: {count_parameters(model):,} parameters on {describe_device(device)}, "
           f"batch {args.batch_size} x {args.seq_len} frames, {args.workers} workers")
 
@@ -138,6 +139,7 @@ def main() -> int:
             print(f"step {step + 1:>4}/{total_steps}: loss {losses[-1]:.5f}, compute {compute_time:.3f} s, "
                   f"data wait {data_time:.3f} s")
 
+    save_checkpoint(run_dir / "model.pt", model, optimizer, total_steps, run_config)
     per_step = float(np.mean(compute_times) + np.mean(data_times))
     results = {
         "model": args.model.stem, "parameters": count_parameters(model), "device": describe_device(device),
@@ -179,6 +181,7 @@ def main() -> int:
         print(f"validation MSE {results['val_mse']:.5f} (copy last frame {results['val_copy_last_mse']:.5f}); "
               f"after so few steps, PredNet is not expected to beat the copy yet")
     print(f"saved in {run_dir}")
+    print(f"draw the predictions with: python -m scripts.show_predictions --run {run_dir}")
     return 0
 
 

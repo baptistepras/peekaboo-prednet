@@ -11,21 +11,9 @@ from peekaboo.data.render import RenderedSequence, RenderSettings, render_sequen
 from peekaboo.data.spec import SequenceSpec
 from peekaboo.data.splicing import SURPRISES, sample_surprise_tuple, surprise_speeds
 from peekaboo.paths import CONFIGS_DIR, FIGURES_DIR
-from peekaboo.viz.frames import animation_frames, contact_sheet, save_gif, stack
+from peekaboo.viz.frames import animation_frames, contact_sheet, describe, save_gif, stack
 
 ROLES = ("possible A", "possible B", "impossible AB", "impossible BA")
-
-
-def describe(spec: SequenceSpec) -> str:
-    """A one line description of a sequence and its event frames."""
-    parts = [f"{spec.condition}", f"digit {spec.label}", f"k={spec.k_target}", f"v={spec.speed}",
-             f"bar {spec.bar_width} px"]
-    for name, value in (("entry", spec.entry_frame), ("onset", spec.onset_frame),
-                        ("reappears", spec.actual_reappear_frame), ("expected", spec.expected_reappear_frame),
-                        ("splice", spec.surprise_frame)):
-        if value >= 0 and not (name == "expected" and value == spec.actual_reappear_frame):
-            parts.append(f"{name} t={value}")
-    return ", ".join(parts)
 
 
 def main() -> int:

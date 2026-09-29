@@ -30,8 +30,9 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.8 | Dataset validation: every sequence re-rendered and checked against the generator's rules | done |
 | 1.9 | Contact sheets and GIFs of every condition and surprise | done |
 | 1.10 | Generator benchmark, validation and test sets built from set configs | done |
-| 1.11 | PredNet implementation and training benchmark on the target hardware | in review |
-| 2 | PredNet ablations, ConvLSTM, trackers, training | planned |
+| 1.11 | PredNet implementation and training benchmark on the target hardware | done |
+| 2.1 | Checkpoints, and figures of the predictions next to the truth (hidden ink in cyan, error maps) | in review |
+| 2 | Training loop, PredNet ablations, ConvLSTM, trackers, probes | planned |
 | 3 | Evaluation, probes, figures | planned |
 
 ## Setup
@@ -64,8 +65,9 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m scripts.bench_generator` | Times the generator on real val digits: milliseconds per sequence for each stage of a training sequence (spec, amodal frames, observed frames, ground truth), spec generation per condition, tuple generation per surprise type, then loader throughput with 0, 2, and 4 workers. Options: `--config`, `--split`, `--n`, `--tuples`, `--workers` (for example `0,2,4,8`), `--batch-size`, `--batches`, `--seed`. | A few milliseconds per sequence, and several hundred sequences per second with workers. |
 | `python -m scripts.make_dataset --config configs/data/val_v1.yaml` | Builds the validation set (1000 sequences of the training mix, held out digits), writes it to `data/datasets/val_v1/`, then validates it and saves `validation.json` next to it. Options: `--overwrite` to rebuild, `--limit-per-cell N` for a quick trial with every cell capped at N (written as `<name>_limitN`), `--no-validate`. | A progress bar, the size on disk, then the validation report ending with `all checks passed`. |
 | `python -m scripts.make_dataset --config configs/data/test_v1.yaml` | Builds the test set (22200 sequences, see "Validation and test sets" below) to `data/datasets/test_v1/` and validates it. | Same, for the test set. |
-| `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.bench_prednet` | Trains PredNet (5 layers by default) for 10 warmup steps and 200 timed steps on the on the fly training stream, on the auto selected device. Prints the compute time and data wait per step, the sequences per second, the peak memory, the estimated time for 10k, 30k, and 50k steps, and the loss. Saves in `runs/bench/<model>_b<batch>_t<frames>_<device>/` a copy of the settings, `results.json`, `loss.png`, and `predictions.png` (actual and predicted frames of 3 validation sequences, with the error of copying the last frame for reference; needs `val_v1`). With the variable at 0, an operation MPS does not support fails instead of silently running on the CPU. Options: `--model` (for example `configs/models/prednet_4l.yaml`), `--steps`, `--warmup`, `--batch-size`, `--seq-len`, `--workers`, `--lr`, `--device`, `--seed`, `--out`. | Timings, a decreasing loss, and `saved in ...`. After 200 steps, PredNet is not expected to beat copying the last frame yet. |
+| `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.bench_prednet` | Trains PredNet (5 layers by default) for 10 warmup steps and 200 timed steps on the on the fly training stream, on the auto selected device. Prints the compute time and data wait per step, the sequences per second, the peak memory, the estimated time for 10k, 30k, and 50k steps, and the loss. Saves in `runs/bench/<model>_b<batch>_t<frames>_<device>/` a copy of the settings, `results.json`, `loss.png`, `predictions.png` (actual and predicted frames of 3 validation sequences, with the error of copying the last frame for reference; needs `val_v1`), and the trained model `model.pt` (a checkpoint for `show_predictions`). With the variable at 0, an operation MPS does not support fails instead of silently running on the CPU. Options: `--model` (for example `configs/models/prednet_4l.yaml`), `--steps`, `--warmup`, `--batch-size`, `--seq-len`, `--workers`, `--lr`, `--device`, `--seed`, `--out`. | Timings, a decreasing loss, and `saved in ...`. After 200 steps, PredNet is not expected to beat copying the last frame yet. |
 | `python -m scripts.bench_prednet --device cpu --steps 5 --warmup 1 --batch-size 4 --seq-len 10 --workers 0` | CPU fallback check: the same code runs without a GPU. | A few steps and `saved in ...`. |
+| `python -m scripts.show_predictions --run runs/bench/prednet_5l_b16_t40_mps` | Loads the checkpoint of a run (`model.pt`), predicts 4 occlusion sequences of `val_v1`, and saves in `<run>/predictions/` one sheet per sequence (`occlusion_<index>.png`, the frames around the crossing) and `occlusion.gif` (the 4 sequences side by side, every frame). Each frame shows three rows: the actual frame with the hidden ink in cyan, the prediction with the outline of the true digit (cyan where hidden), and the pixel error (red: in the frame but not predicted; blue: predicted but not in the frame). Prints the MSE of each sequence against copying the last frame. Nothing is trained. Options: `--checkpoint`, `--data` (set name or folder), `--condition` (or `any`), `--k`, `--speed`, `--n`, `--skip`, `--frames event` or `all`, `--step`, `--columns`, `--scale`, `--gain` (error brightness), `--fps`, `--device`, `--out`. | One MSE line per sequence, then `saved 5 files in ...`. |
 | `python -m scripts.render_examples` | Draws one example of every condition and every surprise tuple on real val digits, and saves in `figures/generator/`: a contact sheet (`sheet_<condition>.png`, every other frame, observed above amodal) and a GIF (`<condition>.gif`) per condition; a contact sheet (`sheet_surprise_<kind>.png`, the four sequences A, B, AB, BA one under the other) and a GIF showing the four side by side (`surprise_<kind>.gif`) per surprise; and `overview.png` with all conditions. In every tile, the cross marks the true center (cyan when hidden) and the strip below gives the state. Needs MNIST. Options: `--config`, `--split`, `--index` (another example), `--seed`, `--scale`, `--step`, `--fps`, `--out`. | `saved 21 files in .../figures/generator` and their list. |
 | `python -m scripts.validate_dataset --stream` | Same checks on sequences generated on the fly: 300 from the training mix and 5 tuples of each surprise type, plus a determinism check (the same index gives the same spec). Options: `--config`, `--split`, `--n`, `--tuples`, `--seed`. | Every check with 0 failures, then `all checks passed`. |
 
@@ -295,6 +297,13 @@ PredNet (Lotter, Kreiman, and Cox, ICLR 2017), reimplemented in PyTorch from the
 
 The configs `configs/models/prednet_5l.yaml` (channels 3, 16, 32, 64, 128) and `prednet_4l.yaml` (3, 32, 64, 128) both have about 3.1 million parameters. The 5 layer model reaches a 4 x 6 top layer on 64 x 96 frames, with a receptive field of 78 px per step, against 38 px for the 4 layer model (decision D9).
 
+`peekaboo.models.build_model(config)` builds a model from a model config, chosen by its `model` key (`prednet` for now).
+
+### `peekaboo/train/checkpoint.py`
+
+- `save_checkpoint(path, model, optimizer, step, config, extra)`: saves the model and optimizer weights, the step, the run settings, and the Python, numpy, and torch random states (CPU, and CUDA or MPS when present). The file is written under a temporary name and then renamed, so an interrupted save never leaves a broken checkpoint.
+- `load_checkpoint(path, model, optimizer, restore_rng)`: loads the weights into the model and optimizer when given, optionally restores the random states, and returns the whole checkpoint. The file holds only tensors and plain values and loads with `weights_only=True`, so loading never runs code. Tensors are read on the CPU and the model keeps its own device.
+
 ### `peekaboo/viz/space_time.py`
 
 Space time diagrams shared by the report scripts: x horizontally, frames downward, the bar as a gray band, and the ink of each frame colored by visibility (green visible, orange partial, red fully hidden, black blackout, nothing when the digit is absent). `draw_spec(ax, spec, sprite, thresholds, title)` also marks the event frames, including the splice.
@@ -307,6 +316,25 @@ Contact sheets and GIFs, drawn with Pillow so every pixel stays sharp. A frame t
 - `contact_sheet(rendered, title, step, scale, columns, show_amodal)`: every `step`-th frame in a grid, with frame numbers and a legend.
 - `animation_frames(renders, labels, scale, show_amodal)` and `save_gif(images, path, fps)`: one image per time step with several sequences side by side (for example the four sequences of a surprise tuple), saved as a looping GIF.
 - `stack(images)`: stacks sheets vertically.
+- `describe(spec)`: a one line description of a sequence and its event frames, used in titles.
+
+### `peekaboo/viz/predictions.py`
+
+Figures of a model's predictions next to the truth. The prediction of a frame can never show a hidden digit: behind the bar, the correct prediction is the gray bar. These figures show what the model sees and predicts; what it believes about the hidden digit is read from its internal states by the probes of later steps. Each frame t is a tile of three rows:
+
+| Row | Content |
+| --- | --- |
+| actual | the observed frame t, with every hidden ink pixel (under the bar or blacked out) blended toward cyan, and a strip colored by state below it |
+| predicted | the model's prediction of frame t from frames 0 to t - 1, with a one pixel outline just outside the true digit: cyan next to hidden ink, white next to visible ink |
+| error | PredNet's pixel error units E_0, brightened by a gain: red where the frame is brighter than the prediction (something missed), blue where the prediction is brighter (something predicted that is not there) |
+
+The colors follow one convention in every figure of the project: red is ink on screen, cyan is the hidden truth, and later yellow will be the position a probe reads from the model and magenta the digit a decoder reads from it.
+
+- `actual_image`, `predicted_image`, `error_image`: the three rows of one frame, as pixel arrays.
+- `prediction_tile(rendered, prediction, t, scale, gain)`: the three rows stacked.
+- `prediction_sheet(rendered, prediction, times, title, scale, columns, gain)`: the tiles of the chosen frames in a grid, with row names, frame numbers, a title, and a legend.
+- `prediction_animation(renders, predictions, labels, times, scale, gain)`: one image per frame with several sequences side by side, for `save_gif`.
+- `frames_around_event(spec)`: the frames from 3 before the digit touches the bar to 4 after it leaves (frame 0 is left out, since its prediction comes before any input).
 
 ### `peekaboo/data/spec.py`
 
@@ -334,7 +362,11 @@ Consistency check between the pixels and the exact ground truth on real digits, 
 
 ### `scripts/bench_prednet.py`
 
-Training benchmark of PredNet on the target device, with a short run whose loss curve and predictions are saved (see the Commands table).
+Training benchmark of PredNet on the target device, with a short run whose loss curve, predictions, and model are saved (see the Commands table).
+
+### `scripts/show_predictions.py`
+
+Prediction figures of a saved model on a stored set, drawn with `peekaboo/viz/predictions.py` (see the Commands table).
 
 ### `scripts/bench_generator.py`
 
@@ -413,11 +445,14 @@ peekaboo/           the package
     store.py        stored datasets: write, read, verify
     validate.py     dataset validation checks
     build.py        validation and test sets from set configs
-  models/           video prediction models
+  models/           video prediction models (build_model in __init__.py)
     prednet.py      PredNet
+  train/            training
+    checkpoint.py   save and load checkpoints
   viz/              figures
     space_time.py   space time diagrams
     frames.py       contact sheets and GIFs
+    predictions.py  predictions next to the truth
 scripts/            command line entry points
   env_check.py      environment report
   prepare_mnist.py  MNIST download and pool report
@@ -431,6 +466,7 @@ scripts/            command line entry points
   bench_generator.py    generator and loader timing
   make_dataset.py       build, write, and validate a val or test set
   bench_prednet.py      PredNet training benchmark
+  show_predictions.py   prediction figures of a saved model
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set
