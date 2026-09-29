@@ -66,6 +66,15 @@ def learning_rate(step: int, settings: TrainSettings) -> float:
     return settings.lr
 
 
+def format_duration(seconds: float) -> str:
+    """A duration in seconds, minutes, or hours, whichever reads best."""
+    if seconds < 60:
+        return f"{seconds:.0f} s"
+    if seconds < 3600:
+        return f"{seconds / 60:.0f} min"
+    return f"{seconds / 3600:.1f} h"
+
+
 def next_frame_l1(prediction: torch.Tensor, frames: torch.Tensor) -> torch.Tensor:
     """Mean absolute error of the predictions of frames 1 and later (frame 0 is predicted before any input)."""
     return (prediction[:, 1:] - frames[:, 1:]).abs().mean()
@@ -154,7 +163,7 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
         loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), settings.grad_clip or math.inf)
         optimizer.step()
-        loss_value = float(loss)
+        loss_value = loss.item()
         if not math.isfinite(loss_value):
             raise RuntimeError(f"The loss is {loss_value} at step {step + 1}; the last good checkpoint is last.pt.")
         done = step + 1
@@ -166,7 +175,7 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
         if done % settings.log_every == 0 or done == end:
             per_step = sum(recent_seconds) / len(recent_seconds)
             log(f"step {done}/{settings.steps}: loss {sum(recent_losses) / len(recent_losses):.5f}, lr {lr:g}, "
-                f"{per_step:.2f} s/step, {(settings.steps - done) * per_step / 3600:.1f} h left")
+                f"{per_step:.2f} s/step, {format_duration((settings.steps - done) * per_step)} left")
         validating = done % settings.val_every == 0 or done == settings.steps
         if validating:
             run_validation(done)

@@ -13,7 +13,8 @@ from peekaboo.data.render import RenderSettings
 from peekaboo.models import build_model
 from peekaboo.paths import CONFIGS_DIR
 from peekaboo.train.checkpoint import load_checkpoint
-from peekaboo.train.loop import TrainSettings, learning_rate, next_frame_l1, train, training_loss, validate
+from peekaboo.train.loop import (TrainSettings, format_duration, learning_rate, next_frame_l1, train, training_loss,
+                                 validate)
 from peekaboo.train.metrics import read_csv
 
 RENDER = RenderSettings.from_config(load_config(CONFIGS_DIR / "data" / "base.yaml"))
@@ -48,8 +49,10 @@ def run(run_dir: Path, pool: DigitPool, settings: GeneratorSettings, resume: boo
     return model
 
 
+@pytest.mark.filterwarnings("error")
 def test_tiny_run_writes_every_file(tmp_path: Path, pool: DigitPool, settings: GeneratorSettings) -> None:
-    """A 4 step run logs every step, validates at steps 0, 2, and 4, and saves its checkpoints and curves."""
+    """A 4 step run logs every step, validates at steps 0, 2, and 4, and saves its checkpoints and curves, without any
+    warning."""
     run(tmp_path, pool, settings)
     for name in ("config.yaml", "train_metrics.csv", "val_metrics.csv", "curves.png", "last.pt", "best.pt"):
         assert (tmp_path / name).exists(), name
@@ -101,3 +104,8 @@ def test_validation_of_a_copy_model_equals_the_copy_baseline(pool: DigitPool, se
     assert metrics["val_l1"] == pytest.approx(metrics["copy_l1"])
     assert metrics["val_mse"] == pytest.approx(metrics["copy_mse"])
     assert metrics["copy_l1"] > 0
+
+
+def test_durations_read_well() -> None:
+    """Short times are given in seconds or minutes, long ones in hours."""
+    assert [format_duration(s) for s in (12.4, 150, 5400)] == ["12 s", "2 min", "1.5 h"]
