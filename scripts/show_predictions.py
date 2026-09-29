@@ -27,7 +27,9 @@ def main() -> int:
     """Load the model, predict the chosen sequences, and save one sheet per sequence and a GIF."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True, help="run folder, for example runs/bench/prednet_5l_...")
-    parser.add_argument("--checkpoint", default="model.pt", help="checkpoint file name inside the run folder")
+    parser.add_argument("--checkpoint", default=None,
+                        help="checkpoint file name inside the run folder (default: best.pt, last.pt, or model.pt, "
+                             "the first that exists)")
     parser.add_argument("--data", default="val_v1", help="a set name in data/datasets/ or a folder")
     parser.add_argument("--condition", default="occlusion", choices=CONDITION_NAMES + ("any",))
     parser.add_argument("--k", type=int, default=None, help="keep only sequences with this k")
@@ -46,7 +48,13 @@ def main() -> int:
     args = parser.parse_args()
 
     device = get_device(args.device)
-    checkpoint = load_checkpoint(args.run / args.checkpoint)
+    names = [args.checkpoint] if args.checkpoint else ["best.pt", "last.pt", "model.pt"]
+    found = [args.run / name for name in names if (args.run / name).exists()]
+    if not found:
+        print(f"no checkpoint {' or '.join(names)} in {args.run}")
+        return 1
+    checkpoint = load_checkpoint(found[0])
+    run_name = f"{args.run.parent.name}/{args.run.name} ({found[0].name})"
     model = build_model(checkpoint["config"]["model"])
     model.load_state_dict(checkpoint["model"])
     model.to(device).eval()
@@ -59,7 +67,7 @@ def main() -> int:
     if not picks:
         print(f"no sequence of {data_dir.name} matches condition={args.condition}, k={args.k}, speed={args.speed}")
         return 1
-    print(f"step {checkpoint['step']} of {args.run.name} on {describe_device(device)}, "
+    print(f"step {checkpoint['step']} of {run_name} on {describe_device(device)}, "
           f"{len(picks)} sequences of {data_dir.name}")
 
     batch = prepare_batch(torch.utils.data.default_collate([dataset[i] for i in picks]), device)
@@ -79,7 +87,7 @@ def main() -> int:
         # frames 1 and later: frame 0 is predicted before any input
         model_mse = float(((predictions[i, 1:] - frames[i, 1:]) ** 2).mean())
         copy_mse = float(((frames[i, :-1] - frames[i, 1:]) ** 2).mean())
-        title = (f"{args.run.name}, step {checkpoint['step']}, {data_dir.name} #{index}: {describe(spec)}; "
+        title = (f"{run_name}, step {checkpoint['step']}, {data_dir.name} #{index}: {describe(spec)}; "
                  f"MSE {model_mse:.5f} (copy last frame {copy_mse:.5f})")
         print(f"#{index}: {describe(spec)}\n    MSE {model_mse:.5f}, copy last frame {copy_mse:.5f}")
         times = frames_around_event(spec) if args.frames == "event" else list(range(1, spec.seq_len))

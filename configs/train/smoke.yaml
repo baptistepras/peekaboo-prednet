@@ -1,0 +1,25 @@
+# A short training run that checks the whole pipeline in a few minutes: training, validation, checkpoints, logs,
+# curves, and resume. It is far too short to learn anything useful. Paths are relative to the project root.
+name: smoke
+model: configs/models/prednet_5l.yaml
+data: configs/data/base.yaml
+
+train:
+  steps: 60
+  batch_size: 8
+  seq_len: 20          # frames per sequence used for training and validation (at most the generated 40)
+  workers: 2
+  seed: 0              # model initialization and training stream; the run goes to runs/<name>/seed<seed>/
+  log_every: 10
+
+optimizer:
+  lr: 0.001            # Adam
+  lr_drop_at: 0.5      # fraction of the steps after which lr is multiplied by lr_drop_factor (null: no drop)
+  lr_drop_factor: 0.1
+  grad_clip: null      # maximum gradient norm (null: no clipping)
+
+validation:
+  data: val_v1         # a stored set in data/datasets/
+  every: 20            # steps between validations; last.pt is saved at each one
+  sequences: 64        # first sequences of the set (null: the whole set)
+  batch_size: 16
