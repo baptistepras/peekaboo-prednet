@@ -1,12 +1,17 @@
-"""Next frame quality: MSE, MAE, and SSIM of a model's predictions against copying the last frame.
+"""Next frame quality: MSE, MAE, and SSIM of a model's predictions against two baselines.
+
+- copy: the last frame, as it is.
+- blank: the true frame with the digit erased, that is the exact background and bar without any digit. It is what a
+  model that never draws digits would predict at best. When the digit moves fast, the copy draws it in the wrong place
+  and misses it in the right one, so a blank prediction can beat the copy without knowing anything about the motion.
 
 Every frame of every sequence gets one row in a table, so the scores can be grouped by condition, speed, k, or state.
 The go/no-go gate (decision D16) uses the visible moving frames: frames t >= 2 where the digit is fully visible in
 frames t - 1 and t. Every visible digit moves (|vx| >= 2), the model has seen at least two frames to estimate the
-motion, and nothing is hidden, so copying the last frame is a fair baseline there. The gate passes when the model's
-MSE on these frames is at least 30% below the copy's. A model that barely beats the copy has not learned the motion,
-and its behavior under occlusion would say little (Rane et al. found PredNet close to copying on fast motion, hence
-the scores per speed).
+motion, and nothing is hidden. The gate passes when the model's MSE on these frames is at least 30% below the better
+of the two baselines: the model must draw the digit, and in the right place. A model that fails has not learned the
+motion, and its behavior under occlusion would say little (Rane et al. found PredNet close to copying on fast motion,
+hence the scores per speed).
 """
 
 from typing import Any
@@ -22,6 +27,7 @@ from peekaboo.data.occluder import STATE_VISIBLE
 MIN_CONTEXT = 2       # frames seen before a prediction counts: two are needed to estimate the motion
 GATE_REDUCTION = 0.3  # D16: the model's MSE must be at least 30% below the copy's
 SCORES = ("mse", "mae", "ssim")
+BASELINES = ("copy", "blank")
 
 
 def gaussian_window(size: int = 11, sigma: float = 1.5) -> torch.Tensor:
@@ -57,6 +63,22 @@ def ssim(x: torch.Tensor, y: torch.Tensor, size: int = 11, sigma: float = 1.5,
     return ssim_map.mean(dim=(1, 2, 3))
 
 
+def copy_prediction(frames: torch.Tensor) -> torch.Tensor:
+    """Predict every frame by the one before it (zeros for frame 0)."""
+    return torch.cat([torch.zeros_like(frames[:, :1]), frames[:, :-1]], dim=1)
+
+
+def blank_prediction(frames: torch.Tensor) -> torch.Tensor:
+    """Predict every frame by the true frame with the digit erased (B, T, 3, H, W).
+
+    The digit is the only pure red element: the background is black, the bar gray, and blackout frames black. Copying
+    the green channel into the red one therefore erases the digit and leaves everything else unchanged.
+    """
+    blank = frames.clone()
+    blank[:, :, 0] = frames[:, :, 1]
+    return blank
+
+
 def frame_scores(prediction: torch.Tensor, frames: torch.Tensor) -> dict[str, torch.Tensor]:
     """MSE, MAE, and SSIM of every predicted frame (B, T); frame 0, predicted before any input, is NaN."""
     difference = prediction[:, 1:] - frames[:, 1:]
@@ -79,10 +101,10 @@ def visible_moving(state: torch.Tensor, min_context: int = MIN_CONTEXT) -> torch
 @torch.no_grad()
 def evaluate(model: torch.nn.Module, dataset: Dataset, device: torch.device, batch_size: int = 16,
              seq_len: int | None = None, count: int | None = None) -> pd.DataFrame:
-    """Score every frame of the first `count` sequences (default: all), for the model and for copying the last frame.
+    """Score every frame of the first `count` sequences (default: all), for the model and the two baselines.
 
     Returns one row per sequence and frame t >= 1, with the sequence's index, condition, speed, and k, the frame's
-    state, whether it is a visible moving frame, and the model_* and copy_* scores.
+    state, whether it is a visible moving frame, and the model_*, copy_*, and blank_* scores.
     """
     model.eval()
     count = len(dataset) if count is None else min(count, len(dataset))
@@ -91,9 +113,9 @@ def evaluate(model: torch.nn.Module, dataset: Dataset, device: torch.device, bat
         batch = prepare_batch(batch, device)
         frames = batch["frames"][:, :seq_len]
         state = batch["state"][:, :frames.shape[1]]
-        model_scores = frame_scores(model(frames)["prediction"], frames)
-        copy = torch.cat([torch.zeros_like(frames[:, :1]), frames[:, :-1]], dim=1)
-        copy_scores = frame_scores(copy, frames)
+        scores = {"model": frame_scores(model(frames)["prediction"], frames),
+                  "copy": frame_scores(copy_prediction(frames), frames),
+                  "blank": frame_scores(blank_prediction(frames), frames)}
         b, t = state.shape
         columns: dict[str, Any] = {
             "index": batch["index"][:, None].expand(b, t),
@@ -104,8 +126,8 @@ def evaluate(model: torch.nn.Module, dataset: Dataset, device: torch.device, bat
             "state": state,
             "visible_moving": visible_moving(state),
         }
-        columns.update({f"model_{name}": value for name, value in model_scores.items()})
-        columns.update({f"copy_{name}": value for name, value in copy_scores.items()})
+        for who, values in scores.items():
+            columns.update({f"{who}_{name}": value for name, value in values.items()})
         table = pd.DataFrame({name: value.reshape(-1).cpu().numpy() for name, value in columns.items()})
         tables.append(table[table["t"] >= 1])
     table = pd.concat(tables, ignore_index=True)
@@ -114,22 +136,27 @@ def evaluate(model: torch.nn.Module, dataset: Dataset, device: torch.device, bat
 
 
 def summarize(table: pd.DataFrame, by: str | None = None) -> pd.DataFrame:
-    """Mean scores of the model and the copy, and the MSE reduction 1 - model / copy, overall or per group."""
-    columns = [f"{who}_{name}" for who in ("model", "copy") for name in SCORES]
+    """Mean scores of the model and the baselines, and the MSE reductions 1 - model / baseline, overall or per group."""
+    columns = [f"{who}_{name}" for who in ("model",) + BASELINES for name in SCORES]
     groups = table.groupby(by) if by else table.assign(all="all").groupby("all")
     summary = groups[columns].mean()
     summary.insert(0, "frames", groups.size())
-    summary["mse_reduction"] = 1.0 - summary["model_mse"] / summary["copy_mse"]
+    for baseline in BASELINES:
+        summary[f"reduction_vs_{baseline}"] = 1.0 - summary["model_mse"] / summary[f"{baseline}_mse"]
     return summary
 
 
 def gate(table: pd.DataFrame, reduction: float = GATE_REDUCTION) -> dict[str, Any]:
-    """Decision D16 on the visible moving frames: does the model's MSE fall at least `reduction` below the copy's?"""
+    """Decision D16 on the visible moving frames: does the model's MSE fall at least `reduction` below the better of
+    the two baselines?"""
     visible = table[table["visible_moving"]]
-    model_mse, copy_mse = float(visible["model_mse"].mean()), float(visible["copy_mse"].mean())
-    achieved = 1.0 - model_mse / copy_mse
-    return {"frames": int(len(visible)), "model_mse": model_mse, "copy_mse": copy_mse, "mse_reduction": achieved,
-            "required_reduction": reduction, "passed": bool(achieved >= reduction)}
+    mse = {who: float(visible[f"{who}_mse"].mean()) for who in ("model",) + BASELINES}
+    baseline = min(BASELINES, key=lambda name: mse[name])
+    achieved = 1.0 - mse["model"] / mse[baseline]
+    return {"frames": int(len(visible)), **{f"{who}_mse": value for who, value in mse.items()},
+            **{f"reduction_vs_{name}": 1.0 - mse["model"] / mse[name] for name in BASELINES},
+            "baseline": baseline, "mse_reduction": achieved, "required_reduction": reduction,
+            "passed": bool(achieved >= reduction)}
 
 
 def tables_to_dict(summary: pd.DataFrame) -> dict[str, dict[str, float]]:

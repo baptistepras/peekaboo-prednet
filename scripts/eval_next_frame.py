@@ -1,9 +1,10 @@
-"""Evaluate a model's next frame predictions on a stored set against copying the last frame, and apply the gate D16.
+"""Evaluate a model's next frame predictions on a stored set against two baselines, and apply the gate D16.
 
-Prints MSE, MAE, and SSIM on the visible moving frames (the digit fully visible in the frame and the one before,
-from frame 2 on), overall and per condition, speed, and k, then the gate: the model's MSE there must be at least 30%
-below the copy's. Saves in <run>/eval/ the scores of every frame (next_frame_<set>.csv) and the summaries with the
-gate (next_frame_<set>.json).
+The baselines are copying the last frame, and the true frame with the digit erased (what a model that never draws
+digits would predict at best). Prints MSE and SSIM on every frame, then on the visible moving frames (the digit fully
+visible in the frame and the one before, from frame 2 on), overall and per condition, speed, and k, then the gate: the
+model's MSE there must be at least 30% below the better baseline. Saves in <run>/eval/ the scores of every frame,
+MAE included (next_frame_<set>.csv), and the summaries with the gate (next_frame_<set>.json).
 """
 
 import argparse
@@ -19,7 +20,8 @@ from peekaboo.eval.next_frame import GATE_REDUCTION, evaluate, gate, summarize, 
 from peekaboo.paths import DATASETS_DIR
 from peekaboo.train.checkpoint import find_checkpoint, load_model
 
-SHOWN = ["frames", "model_mse", "copy_mse", "mse_reduction", "model_mae", "copy_mae", "model_ssim", "copy_ssim"]
+SHOWN = ["frames", "model_mse", "copy_mse", "blank_mse", "reduction_vs_copy", "reduction_vs_blank", "model_ssim",
+         "copy_ssim", "blank_ssim"]
 
 
 def show(summary: pd.DataFrame, title: str) -> None:
@@ -66,9 +68,11 @@ def main() -> int:
 
     result = gate(table, args.reduction)
     verdict = "PASSED" if result["passed"] else "FAILED"
-    print(f"\ngate D16 {verdict}: MSE {result['model_mse']:.5f} against {result['copy_mse']:.5f} for the copy on "
-          f"{result['frames']} visible moving frames, a reduction of {100 * result['mse_reduction']:.1f}% "
-          f"(at least {100 * result['required_reduction']:.0f}% required)")
+    print(f"\ngate D16 {verdict}: on {result['frames']} visible moving frames, MSE {result['model_mse']:.5f} against "
+          f"{result['copy_mse']:.5f} for the copy ({100 * result['reduction_vs_copy']:+.1f}%) and "
+          f"{result['blank_mse']:.5f} for the blank frame ({100 * result['reduction_vs_blank']:+.1f}%); the better "
+          f"baseline is {result['baseline']}, and at least {100 * result['required_reduction']:.0f}% below it is "
+          f"required")
 
     out = args.run / "eval"
     out.mkdir(parents=True, exist_ok=True)
