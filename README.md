@@ -32,8 +32,9 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 1.10 | Generator benchmark, validation and test sets built from set configs | done |
 | 1.11 | PredNet implementation and training benchmark on the target hardware | done |
 | 2.1 | Checkpoints, and figures of the predictions next to the truth (hidden ink in cyan, error maps) | done |
-| 2.2 | Training loop: training configs, validation, best and last checkpoints, logs, curves, exact resume | in review |
-| 2.3 to 2.10 | Next frame evaluation, pilot training, PredNet ablations, ConvLSTM, trackers, probes | planned |
+| 2.2 | Training loop: training configs, validation, best and last checkpoints, logs, curves, exact resume | done |
+| 2.3 | Next frame evaluation (MSE, MAE, SSIM against copying the last frame) and the go/no-go gate | in review |
+| 2.4 to 2.10 | Pilot training, PredNet ablations, ConvLSTM, trackers, probes | planned |
 | 3 | Evaluation, probes, figures | planned |
 
 ## Setup
@@ -70,6 +71,7 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `python -m scripts.bench_prednet --device cpu --steps 5 --warmup 1 --batch-size 4 --seq-len 10 --workers 0` | CPU fallback check: the same code runs without a GPU. | A few steps and `saved in ...`. |
 | `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.train --config configs/train/smoke.yaml` | Trains the model of a training config (here PredNet 5 layers for 60 steps of 8 sequences of 20 frames, about a minute) on the on the fly training stream, validates at step 0 and every `validation.every` steps on the first sequences of `val_v1`, and writes the run to `runs/<name>/seed<seed>/` (files listed under `peekaboo/train/loop.py` below). Prints the loss every `train.log_every` steps with the time left, and each validation against copying the last frame. An existing run folder is never replaced without `--overwrite`. Options: `--seed` (replaces `train.seed`), `--set key=value` to change any config value (repeatable, for example `--set train.steps=100`), `--resume`, `--stop-at`, `--overwrite`, `--device`, `--out`. Needs MNIST and `val_v1`. | Loss lines, validations at steps 0, 20, 40, and 60, then `stopped at step 60 of 60; best validation L1 ...`. |
 | `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.train --config configs/train/smoke.yaml --overwrite --stop-at 30` then the same command with `--resume` instead of `--overwrite --stop-at 30` | Interrupts a run after step 30, as a job with a time limit would, then continues it from `last.pt`. The resumed run trains on exactly the samples it would have seen without the interruption, and the logs keep one row per step. Resuming with different settings is refused. | The first command ends with `stopped at step 30 of 60`, the second with `stopped at step 60 of 60`. |
+| `python -m scripts.eval_next_frame --run runs/smoke/seed0` | Scores the next frame predictions of a run's model (`best.pt`, else `last.pt`, else `model.pt`) on every frame of `val_v1`, together with copying the last frame. Prints MSE, MAE, and SSIM on every frame from 1 on, then on the visible moving frames (the digit fully visible in the frame and the one before, from frame 2 on), overall and per condition, speed, and k, with the MSE reduction against the copy. Ends with the gate D16: `PASSED` when the model's MSE on the visible moving frames is at least 30% below the copy's. Saves the score of every frame (`next_frame_val_v1.csv`) and the summaries with the gate (`next_frame_val_v1.json`) in `<run>/eval/`. Options: `--checkpoint`, `--data`, `--n` (first sequences), `--seq-len`, `--batch-size`, `--reduction` (30% by default), `--device`. | The tables, then `gate D16 PASSED` or `FAILED`. A model trained for a few hundred steps fails: the gate is meant for the pilot run. |
 | `python -m scripts.show_predictions --run runs/bench/prednet_5l_b16_t40_mps` | Loads the checkpoint of a run (`best.pt`, else `last.pt`, else `model.pt`), predicts 4 occlusion sequences of `val_v1`, and saves in `<run>/predictions/` one sheet per sequence (`occlusion_<index>.png`, the frames around the crossing) and `occlusion.gif` (the 4 sequences side by side, every frame). Each frame shows three rows: the actual frame with the hidden ink in cyan, the prediction with the outline of the true digit (cyan where hidden), and the pixel error (red: in the frame but not predicted; blue: predicted but not in the frame). Prints the MSE of each sequence against copying the last frame. Nothing is trained. Options: `--checkpoint`, `--data` (set name or folder), `--condition` (or `any`), `--k`, `--speed`, `--n`, `--skip`, `--frames event` or `all`, `--step`, `--columns`, `--scale`, `--gain` (error brightness), `--fps`, `--device`, `--out`. | One MSE line per sequence, then `saved 5 files in ...`. |
 | `python -m scripts.render_examples` | Draws one example of every condition and every surprise tuple on real val digits, and saves in `figures/generator/`: a contact sheet (`sheet_<condition>.png`, every other frame, observed above amodal) and a GIF (`<condition>.gif`) per condition; a contact sheet (`sheet_surprise_<kind>.png`, the four sequences A, B, AB, BA one under the other) and a GIF showing the four side by side (`surprise_<kind>.gif`) per surprise; and `overview.png` with all conditions. In every tile, the cross marks the true center (cyan when hidden) and the strip below gives the state. Needs MNIST. Options: `--config`, `--split`, `--index` (another example), `--seed`, `--scale`, `--step`, `--fps`, `--out`. | `saved 21 files in .../figures/generator` and their list. |
 | `python -m scripts.validate_dataset --stream` | Same checks on sequences generated on the fly: 300 from the training mix and 5 tuples of each surprise type, plus a determinism check (the same index gives the same spec). Options: `--config`, `--split`, `--n`, `--tuples`, `--seed`. | Every check with 0 failures, then `all checks passed`. |
@@ -302,6 +304,17 @@ The configs `configs/models/prednet_5l.yaml` (channels 3, 16, 32, 64, 128) and `
 
 `peekaboo.models.build_model(config)` builds a model from a model config, chosen by its `model` key (`prednet` for now).
 
+### `peekaboo/eval/next_frame.py`
+
+Next frame quality of a model against copying the last frame.
+
+- `ssim(x, y)`: structural similarity of images (N, C, H, W), one value per image (Wang et al., 2004), written in torch so it runs on any device. Gaussian window of 11 pixels with sigma 1.5, no padding, constants (0.01)^2 and (0.03)^2 for values in [0, 1], averaged over pixels and channels.
+- `frame_scores(prediction, frames)`: MSE, MAE, and SSIM of every predicted frame (frame 0, predicted before any input, is left out).
+- `visible_moving(state)`: the frames where copying the last frame is a fair baseline: from frame 2 on (two frames are needed to estimate the motion), with the digit fully visible in the frame and the one before. Every visible digit moves, since |vx| is at least 2 px/frame.
+- `evaluate(model, dataset, device)`: a table with one row per sequence and frame: sequence index, condition, speed, k, state, visible moving or not, and the scores of the model and of the copy.
+- `summarize(table, by)`: mean scores overall or per group, and the MSE reduction 1 - model / copy.
+- `gate(table)`: decision D16. The model's MSE on the visible moving frames must be at least 30% below the copy's before any occlusion analysis: a model close to copying has not learned the motion. The scores per speed show whether PredNet falls back to copying on fast digits, as Rane et al. observed.
+
 ### `peekaboo/train/loop.py`
 
 The training loop, step based. Step s trains on the sequences s x batch to (s + 1) x batch - 1 of the on the fly stream, so every sample is new and a resumed run sees exactly the samples of an uninterrupted one. The learning rate depends only on the step: Adam at `lr`, optionally multiplied by `lr_drop_factor` after a fraction `lr_drop_at` of the steps (Lotter et al. divide it by 10 halfway). Gradient clipping is optional, and the gradient norm is logged at every step.
@@ -332,6 +345,8 @@ The training loop, step based. Step s trains on the sequences s x batch to (s + 
 ### `peekaboo/train/checkpoint.py`
 
 - `save_checkpoint(path, model, optimizer, step, config, extra)`: saves the model and optimizer weights, the step, the run settings, and the Python, numpy, and torch random states (CPU, and CUDA or MPS when present). The file is written under a temporary name and then renamed, so an interrupted save never leaves a broken checkpoint.
+- `find_checkpoint(run_dir, name)`: the checkpoint `name` of a run folder, or by default the first of `best.pt`, `last.pt`, and `model.pt` that exists.
+- `load_model(path, device)`: rebuilds a model from the settings stored in its checkpoint and loads its weights, in eval mode.
 - `load_checkpoint(path, model, optimizer, restore_rng)`: loads the weights into the model and optimizer when given, optionally restores the random states, and returns the whole checkpoint. The file holds only tensors and plain values and loads with `weights_only=True`, so loading never runs code. Tensors are read on the CPU and the model keeps its own device.
 
 ### `peekaboo/viz/space_time.py`
@@ -397,6 +412,10 @@ Training benchmark of PredNet on the target device, with a short run whose loss 
 ### `scripts/train.py`
 
 Training and resume from a training config (see the Commands table).
+
+### `scripts/eval_next_frame.py`
+
+Next frame scores of a saved model and the gate D16 (see the Commands table).
 
 ### `scripts/show_predictions.py`
 
@@ -482,6 +501,8 @@ peekaboo/           the package
     build.py        validation and test sets from set configs
   models/           video prediction models (build_model in __init__.py)
     prednet.py      PredNet
+  eval/             evaluation
+    next_frame.py   next frame scores, SSIM, gate D16
   train/            training
     loop.py         training loop, validation, resume
     metrics.py      CSV logs
@@ -505,6 +526,7 @@ scripts/            command line entry points
   make_dataset.py       build, write, and validate a val or test set
   bench_prednet.py      PredNet training benchmark
   train.py              training and resume
+  eval_next_frame.py    next frame scores and gate D16
   show_predictions.py   prediction figures of a saved model
 configs/            one config file per experiment
   data/base.yaml    generator settings

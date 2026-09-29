@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from peekaboo.models import build_model
-from peekaboo.train.checkpoint import load_checkpoint, save_checkpoint
+from peekaboo.train.checkpoint import find_checkpoint, load_checkpoint, load_model, save_checkpoint
 
 CONFIG = {"model": {"model": "prednet", "stack_sizes": [3, 4, 8], "layer_loss_weights": "L0"},
           "args": {"lr": "0.01", "steps": "3"}}
@@ -59,6 +59,24 @@ def test_missing_optimizer_state_is_an_error(tmp_path: Path) -> None:
     path = save_checkpoint(tmp_path / "model.pt", model)
     with pytest.raises(ValueError):
         load_checkpoint(path, model, torch.optim.Adam(model.parameters()))
+
+
+def test_find_and_load_a_run_model(tmp_path: Path) -> None:
+    """best.pt is preferred to last.pt and model.pt; load_model rebuilds the model from its checkpoint alone."""
+    torch.manual_seed(0)
+    model = build_model(CONFIG["model"])
+    for name in ("model.pt", "last.pt"):
+        save_checkpoint(tmp_path / name, model, config=CONFIG)
+    assert find_checkpoint(tmp_path).name == "last.pt"
+    save_checkpoint(tmp_path / "best.pt", model, step=3, config=CONFIG)
+    assert find_checkpoint(tmp_path).name == "best.pt"
+    assert find_checkpoint(tmp_path, "model.pt").name == "model.pt"
+    with pytest.raises(FileNotFoundError):
+        find_checkpoint(tmp_path, "missing.pt")
+    loaded, checkpoint = load_model(tmp_path / "best.pt", torch.device("cpu"))
+    frames = torch.rand(1, 3, 3, 16, 24)
+    assert checkpoint["step"] == 3 and not loaded.training
+    assert torch.equal(loaded(frames)["prediction"], model(frames)["prediction"])
 
 
 def test_unknown_model_is_an_error() -> None:

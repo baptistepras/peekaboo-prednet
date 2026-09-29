@@ -16,9 +16,8 @@ from peekaboo.data.occluder import VisibilityThresholds
 from peekaboo.data.render import render_sequence
 from peekaboo.data.store import StoredDataset
 from peekaboo.device import describe_device, get_device
-from peekaboo.models import build_model
 from peekaboo.paths import DATASETS_DIR
-from peekaboo.train.checkpoint import load_checkpoint
+from peekaboo.train.checkpoint import find_checkpoint, load_model
 from peekaboo.viz.frames import describe, save_gif
 from peekaboo.viz.predictions import frames_around_event, prediction_animation, prediction_sheet
 
@@ -48,16 +47,9 @@ def main() -> int:
     args = parser.parse_args()
 
     device = get_device(args.device)
-    names = [args.checkpoint] if args.checkpoint else ["best.pt", "last.pt", "model.pt"]
-    found = [args.run / name for name in names if (args.run / name).exists()]
-    if not found:
-        print(f"no checkpoint {' or '.join(names)} in {args.run}")
-        return 1
-    checkpoint = load_checkpoint(found[0])
-    run_name = f"{args.run.parent.name}/{args.run.name} ({found[0].name})"
-    model = build_model(checkpoint["config"]["model"])
-    model.load_state_dict(checkpoint["model"])
-    model.to(device).eval()
+    path = find_checkpoint(args.run, args.checkpoint)
+    model, checkpoint = load_model(path, device)
+    run_name = f"{args.run.parent.name}/{args.run.name} ({path.name})"
 
     data_dir = Path(args.data) if Path(args.data).is_dir() else DATASETS_DIR / args.data
     dataset = StoredDataset(data_dir)

@@ -11,7 +11,10 @@ from typing import Any
 import numpy as np
 import torch
 
+from peekaboo.models import build_model
+
 CHECKPOINT_VERSION = 1
+CHECKPOINT_NAMES = ("best.pt", "last.pt", "model.pt")  # a training run's best and last, a benchmark's model
 
 
 def rng_state() -> dict[str, Any]:
@@ -80,3 +83,22 @@ def load_checkpoint(path: str | Path, model: torch.nn.Module | None = None,
     if restore_rng:
         set_rng_state(checkpoint["rng"])
     return checkpoint
+
+
+def find_checkpoint(run_dir: str | Path, name: str | None = None) -> Path:
+    """The checkpoint `name` of a run folder, or by default the first of best.pt, last.pt, and model.pt that exists."""
+    run_dir = Path(run_dir)
+    names = [name] if name else list(CHECKPOINT_NAMES)
+    for candidate in names:
+        if (run_dir / candidate).exists():
+            return run_dir / candidate
+    raise FileNotFoundError(f"No checkpoint {' or '.join(names)} in {run_dir}.")
+
+
+def load_model(path: str | Path, device: torch.device) -> tuple[torch.nn.Module, dict[str, Any]]:
+    """Rebuild a model from the settings stored in its checkpoint, load its weights, and put it in eval mode on the
+    device. Returns the model and the checkpoint."""
+    checkpoint = load_checkpoint(path)
+    model = build_model(checkpoint["config"]["model"])
+    model.load_state_dict(checkpoint["model"])
+    return model.to(device).eval(), checkpoint
