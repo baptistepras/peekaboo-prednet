@@ -11,7 +11,7 @@ from peekaboo.data.dataset import OnTheFlyDataset
 from peekaboo.data.mnist_pool import DigitPool
 from peekaboo.data.render import RenderSettings
 from peekaboo.models import build_model
-from peekaboo.paths import CONFIGS_DIR
+from peekaboo.paths import CONFIGS_DIR, PROJECT_ROOT
 from peekaboo.train.checkpoint import load_checkpoint
 from peekaboo.train.loop import (TrainSettings, format_duration, learning_rate, next_frame_l1, train, training_loss,
                                  validate)
@@ -109,3 +109,14 @@ def test_validation_of_a_copy_model_equals_the_copy_baseline(pool: DigitPool, se
 def test_durations_read_well() -> None:
     """Short times are given in seconds or minutes, long ones in hours."""
     assert [format_duration(s) for s in (12.4, 150, 5400)] == ["12 s", "2 min", "1.5 h"]
+
+
+@pytest.mark.parametrize("path", sorted((CONFIGS_DIR / "train").glob("*.yaml")), ids=lambda p: p.stem)
+def test_training_configs_are_complete(path: Path) -> None:
+    """Every training config gives valid settings, points to existing model and data configs, and builds its model."""
+    config = load_config(path)
+    settings = TrainSettings.from_config(config)
+    assert settings.steps > 0 and settings.val_every > 0 and 1 <= settings.seq_len <= 40
+    for key in ("model", "data"):
+        assert (PROJECT_ROOT / config[key]).exists(), config[key]
+    build_model(load_config(PROJECT_ROOT / config["model"]))

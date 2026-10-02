@@ -1,0 +1,25 @@
+# Pilot run of the main model (step 2.4): does PredNet learn the digits' motion well enough to pass the gate D16?
+# About 5 hours on an Apple M5 (1.73 s per step plus validations). Paths are relative to the project root.
+name: pilot_prednet5l
+model: configs/models/prednet_5l.yaml
+data: configs/data/base.yaml
+
+train:
+  steps: 10000         # 160,000 new sequences of the training mix
+  batch_size: 16
+  seq_len: 40          # whole sequences, as in the evaluation
+  workers: 4
+  seed: 0
+  log_every: 100
+
+optimizer:
+  lr: 0.001            # Adam, as in Lotter et al.
+  lr_drop_at: 0.5      # divided by 10 halfway, as in Lotter et al.
+  lr_drop_factor: 0.1
+  grad_clip: null
+
+validation:
+  data: val_v1
+  every: 500           # 21 validations; last.pt is saved at each one
+  sequences: null      # the whole set, 1000 sequences
+  batch_size: 16
