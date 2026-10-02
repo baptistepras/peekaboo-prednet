@@ -51,6 +51,13 @@ def main() -> int:
     run_config = {"name": config["name"], "train_config": config,
                   "model": load_config(resolve(config["model"])), "data": load_config(resolve(config["data"]))}
 
+    settings = TrainSettings.from_config(config)
+    render_settings = RenderSettings.from_config(run_config["data"])
+    if settings.digit_weight != 1.0 and render_settings.digit_rgb != (1.0, 0.0, 0.0):
+        print("loss.digit_weight needs pure red digits (render.digit_rgb [1, 0, 0]): the digit pixels are found by "
+              "their color")
+        return 1
+
     if args.resume:
         if not (run_dir / "last.pt").exists():
             print(f"cannot resume: {run_dir / 'last.pt'} does not exist")
@@ -67,19 +74,18 @@ def main() -> int:
 
     seed_everything(seed)
     device = get_device(args.device)
-    settings = TrainSettings.from_config(config)
     data_config = run_config["data"]
     digits = data_config["digits"]
     pool = build_digit_pool("train", digits["box_size"], digits["ink_threshold"], digits["val_size"],
                             digits["holdout_seed"], download=False)
-    train_data = OnTheFlyDataset(pool, GeneratorSettings.from_config(data_config),
-                                 RenderSettings.from_config(data_config), "train", seed)
-    val_data = StoredDataset(DATASETS_DIR / config["validation"]["data"])
+    train_data = OnTheFlyDataset(pool, GeneratorSettings.from_config(data_config), render_settings, "train", seed)
+    # the validation set is drawn with the training colors
+    val_data = StoredDataset(DATASETS_DIR / config["validation"]["data"], render_settings=render_settings)
     model = build_model(run_config["model"]).to(device)
     print(f"{config['name']} seed {seed}: {count_parameters(model):,} parameters on {describe_device(device)}, "
-          f"{settings.steps} steps of {settings.batch_size} x {settings.seq_len} frames, validation on "
-          f"{min(settings.val_sequences or len(val_data), len(val_data))} sequences of "
-          f"{config['validation']['data']} every {settings.val_every} steps")
+          f"{settings.steps} steps of {settings.batch_size} x {settings.seq_len} frames, digit pixels weighted "
+          f"x{settings.digit_weight:g}, validation on {min(settings.val_sequences or len(val_data), len(val_data))} "
+          f"sequences of {config['validation']['data']} every {settings.val_every} steps")
     print(f"run folder: {run_dir}" + (" (resumed)" if args.resume else ""))
     train(run_dir, model, train_data, val_data, settings, run_config, device, resume=args.resume,
           stop_at=args.stop_at)

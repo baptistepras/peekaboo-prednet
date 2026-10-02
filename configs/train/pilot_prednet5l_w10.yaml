@@ -1,7 +1,7 @@
-# First pilot run of the main model (step 2.4), with PredNet's own loss. It failed the gate D16: the model learned
-# to predict the scene without the digit and never drew it (see the README, "Pilot results"). Kept to reproduce that
-# result; pilot_prednet5l_w10.yaml is the run that replaced it. About 5 hours on an Apple M5.
-name: pilot_prednet5l
+# Pilot run of the main model (step 2.4) with the visible digit pixels weighted by 10 in the loss (decision D12): with
+# PredNet's own loss, the first pilot never drew the digit (see the README, "Pilot results"). About 5 h 20 on an
+# Apple M5 (1.8 s per step plus 21 validations of 35 s). Paths are relative to the project root.
+name: pilot_prednet5l_w10
 model: configs/models/prednet_5l.yaml
 data: configs/data/base.yaml
 
@@ -20,7 +20,7 @@ optimizer:
   grad_clip: null
 
 loss:
-  digit_weight: 1      # PredNet's own loss, unweighted
+  digit_weight: 10     # visible digit pixels of the target frames count 10 times in the L1 loss
 
 validation:
   data: val_v1

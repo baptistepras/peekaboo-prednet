@@ -18,6 +18,9 @@ optimizer:
   lr_drop_factor: 0.1
   grad_clip: null      # maximum gradient norm (null: no clipping)
 
+loss:
+  digit_weight: 10     # weight of the visible digit pixels in the L1 loss (1: PredNet's own loss)
+
 validation:
   data: val_v1         # a stored set in data/datasets/
   every: 20            # steps between validations; last.pt is saved at each one

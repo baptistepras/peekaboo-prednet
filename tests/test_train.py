@@ -13,8 +13,8 @@ from peekaboo.data.render import RenderSettings
 from peekaboo.models import build_model
 from peekaboo.paths import CONFIGS_DIR, PROJECT_ROOT
 from peekaboo.train.checkpoint import load_checkpoint
-from peekaboo.train.loop import (TrainSettings, format_duration, learning_rate, next_frame_l1, train, training_loss,
-                                 validate)
+from peekaboo.train.losses import next_frame_l1, training_loss
+from peekaboo.train.loop import TrainSettings, format_duration, learning_rate, train, validate
 from peekaboo.train.metrics import read_csv
 
 RENDER = RenderSettings.from_config(load_config(CONFIGS_DIR / "data" / "base.yaml"))
@@ -104,6 +104,9 @@ def test_validation_of_a_copy_model_equals_the_copy_baseline(pool: DigitPool, se
     assert metrics["val_l1"] == pytest.approx(metrics["copy_l1"])
     assert metrics["val_mse"] == pytest.approx(metrics["copy_mse"])
     assert metrics["copy_l1"] > 0
+    assert metrics["val_loss"] == pytest.approx(0.5 * metrics["val_l1"])  # unweighted: half the L1
+    weighted = validate(CopyLastFrame(), val_data, 4, 2, 6, CPU, digit_weight=10.0)
+    assert weighted["val_loss"] > metrics["val_loss"] and weighted["val_l1"] == pytest.approx(metrics["val_l1"])
 
 
 def test_durations_read_well() -> None:

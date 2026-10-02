@@ -2,12 +2,11 @@
 
 Step s trains on the sequences s * batch_size to (s + 1) * batch_size - 1 of the stream, so every sample is new and a
 resumed run sees exactly the samples it would have seen without the interruption. The learning rate is a function of
-the step only. Validation measures the next frame error on a stored set, and the best checkpoint is chosen on it
-alone: occlusion metrics never take part in model selection.
+the step only. Validation measures the next frame error on a stored set, and the best checkpoint is chosen on the
+validation value of the training objective alone: occlusion metrics never take part in model selection.
 
 Every model returns a dictionary with "prediction" (B, T, C, H, W), where prediction[:, t] predicts frame t from the
-frames before it. PredNet trains on its own loss (the mean activity of its error units); any other model trains on
-half the mean absolute next frame error, which equals PredNet's pixel layer loss (decision D12).
+frames before it. The training objective is in peekaboo/train/losses.py (decision D12).
 """
 
 import math
@@ -24,8 +23,8 @@ from torch.utils.data import Dataset
 
 from peekaboo.config import save_config
 from peekaboo.data.dataset import make_loader, prepare_batch
-from peekaboo.models.prednet import PredNet
 from peekaboo.train.checkpoint import load_checkpoint, save_checkpoint
+from peekaboo.train.losses import training_loss, weighted_pixel_loss
 from peekaboo.train.metrics import TRAIN_FIELDS, VAL_FIELDS, CsvLog
 from peekaboo.viz.curves import plot_training
 
@@ -46,17 +45,19 @@ class TrainSettings:
     val_every: int = 500
     val_sequences: int | None = None  # None: the whole validation set
     val_batch_size: int = 16
+    digit_weight: float = 1.0         # weight of the visible digit pixels in the loss, 1 for PredNet's own loss
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "TrainSettings":
-        """Build the settings from a training config (sections train, optimizer, validation)."""
+        """Build the settings from a training config (sections train, optimizer, validation, and optionally loss)."""
         train, optimizer, validation = config["train"], config["optimizer"], config["validation"]
         return cls(steps=int(train["steps"]), batch_size=int(train["batch_size"]), seq_len=int(train["seq_len"]),
                    workers=int(train.get("workers", 0)), log_every=int(train.get("log_every", 50)),
                    lr=float(optimizer["lr"]), lr_drop_at=optimizer.get("lr_drop_at"),
                    lr_drop_factor=float(optimizer.get("lr_drop_factor", 0.1)), grad_clip=optimizer.get("grad_clip"),
                    val_every=int(validation["every"]), val_sequences=validation.get("sequences"),
-                   val_batch_size=int(validation.get("batch_size", 16)))
+                   val_batch_size=int(validation.get("batch_size", 16)),
+                   digit_weight=float(config.get("loss", {}).get("digit_weight", 1.0)))
 
 
 def learning_rate(step: int, settings: TrainSettings) -> float:
@@ -75,31 +76,24 @@ def format_duration(seconds: float) -> str:
     return f"{seconds / 3600:.1f} h"
 
 
-def next_frame_l1(prediction: torch.Tensor, frames: torch.Tensor) -> torch.Tensor:
-    """Mean absolute error of the predictions of frames 1 and later (frame 0 is predicted before any input)."""
-    return (prediction[:, 1:] - frames[:, 1:]).abs().mean()
-
-
-def training_loss(model: torch.nn.Module, out: dict[str, Any], frames: torch.Tensor) -> torch.Tensor:
-    """PredNet's own loss, or half the next frame L1 error for other models (the same value as PredNet's L0 loss)."""
-    if isinstance(model, PredNet):
-        return model.loss(out["layer_errors"])
-    return 0.5 * next_frame_l1(out["prediction"], frames)
-
-
 @torch.no_grad()
 def validate(model: torch.nn.Module, dataset: Dataset, count: int, batch_size: int, seq_len: int,
-             device: torch.device) -> dict[str, float]:
-    """Next frame L1 and squared errors per pixel on the first `count` sequences, for the model and for copying the
-    last frame, over frames 1 to seq_len - 1."""
+             device: torch.device, digit_weight: float = 1.0) -> dict[str, float]:
+    """Validation scores on the first `count` sequences, over frames 1 to seq_len - 1.
+
+    val_loss is the weighted pixel loss of the training objective, which chooses the best checkpoint. The plain L1
+    and squared errors per pixel of the model and of copying the last frame are given for reference.
+    """
     was_training = model.training
     model.eval()
-    sums = {"val_l1": 0.0, "val_mse": 0.0, "copy_l1": 0.0, "copy_mse": 0.0}
+    sums = {"val_loss": 0.0, "val_l1": 0.0, "val_mse": 0.0, "copy_l1": 0.0, "copy_mse": 0.0}
     pixels = 0
     for batch in make_loader(dataset, batch_size, start=0, count=count):
         frames = prepare_batch(batch, device)["frames"][:, :seq_len]
+        prediction = model(frames)["prediction"]
         target = frames[:, 1:]
-        for name, guess in (("val", model(frames)["prediction"][:, 1:]), ("copy", frames[:, :-1])):
+        sums["val_loss"] += float(weighted_pixel_loss(prediction, frames, digit_weight)) * target.numel()
+        for name, guess in (("val", prediction[:, 1:]), ("copy", frames[:, :-1])):
             difference = guess - target
             sums[f"{name}_l1"] += float(difference.abs().sum())
             sums[f"{name}_mse"] += float(difference.square().sum())
@@ -114,12 +108,12 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
     """Train `model` (already on `device`) and return a summary.
 
     Writes in run_dir: config.yaml, train_metrics.csv, val_metrics.csv, curves.png, last.pt (at every validation and
-    when stopping), and best.pt (lowest validation L1). With resume, training continues from last.pt. With stop_at,
+    when stopping), and best.pt (lowest validation loss). With resume, training continues from last.pt. With stop_at,
     training stops after that step and saves last.pt, as a job with a time limit would.
     """
     run_dir = Path(run_dir)
     optimizer = torch.optim.Adam(model.parameters(), lr=settings.lr)
-    start, best = 0, {"val_l1": math.inf, "step": -1}
+    start, best = 0, {"val_loss": math.inf, "step": -1}
     if resume:
         checkpoint = load_checkpoint(run_dir / "last.pt", model, optimizer, restore_rng=True)
         start, best = checkpoint["step"], checkpoint["extra"]["best"]
@@ -132,12 +126,14 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
 
     def run_validation(step: int) -> dict[str, float]:
         """Validate, log the row, and return the metrics."""
-        metrics = validate(model, val_data, val_count, settings.val_batch_size, settings.seq_len, device)
-        if step > 0 and metrics["val_l1"] < best["val_l1"]:
-            best.update(val_l1=metrics["val_l1"], step=step)
+        metrics = validate(model, val_data, val_count, settings.val_batch_size, settings.seq_len, device,
+                           settings.digit_weight)
+        if step > 0 and metrics["val_loss"] < best["val_loss"]:
+            best.update(val_loss=metrics["val_loss"], step=step)
         val_log.write(step=step, **metrics, best_step=best["step"])
-        log(f"validation at step {step}: L1 {metrics['val_l1']:.5f} (copy last frame {metrics['copy_l1']:.5f}), "
-            f"MSE {metrics['val_mse']:.5f} (copy {metrics['copy_mse']:.5f}), best step {best['step']}")
+        log(f"validation at step {step}: loss {metrics['val_loss']:.5f}, L1 {metrics['val_l1']:.5f} (copy last frame "
+            f"{metrics['copy_l1']:.5f}), MSE {metrics['val_mse']:.5f} (copy {metrics['copy_mse']:.5f}), best step "
+            f"{best['step']}")
         return metrics
 
     if start == 0:
@@ -158,7 +154,7 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
         lr = learning_rate(step, settings)
         for group in optimizer.param_groups:
             group["lr"] = lr
-        loss = training_loss(model, model(frames), frames)
+        loss = training_loss(model, model(frames), frames, settings.digit_weight)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), settings.grad_clip or math.inf)
@@ -186,6 +182,6 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
                 shutil.copyfile(run_dir / "last.pt", run_dir / "best.pt")
             plot_training(run_dir, f"{run_config.get('name', '')} {run_dir.name}".strip())
 
-    log(f"stopped at step {last_saved} of {settings.steps}; best validation L1 {best['val_l1']:.5f} at step "
+    log(f"stopped at step {last_saved} of {settings.steps}; best validation loss {best['val_loss']:.5f} at step "
         f"{best['step']}")
     return {"step": last_saved, "best": best}

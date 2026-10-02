@@ -34,7 +34,7 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 2.1 | Checkpoints, and figures of the predictions next to the truth (hidden ink in cyan, error maps) | done |
 | 2.2 | Training loop: training configs, validation, best and last checkpoints, logs, curves, exact resume | done |
 | 2.3 | Next frame evaluation (MSE, MAE, SSIM against copying the last frame and against the frame without its digit) and the go/no-go gate | done |
-| 2.4 | Pilot training of PredNet 5 layers (10k steps) and the go/no-go decision | in progress |
+| 2.4 | Pilot training of PredNet 5 layers and the go/no-go decision: PredNet's own loss fails, a loss weighting the digit pixels passes (see "Pilot results") | in progress |
 | 2.5 to 2.10 | PredNet ablations, ConvLSTM, trackers, probes, training sweep | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -73,9 +73,11 @@ Every command below runs from the project root with `peekaboo` active. The packa
 | `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.train --config configs/train/smoke.yaml` | Trains the model of a training config (here PredNet 5 layers for 60 steps of 8 sequences of 20 frames, about a minute) on the on the fly training stream, validates at step 0 and every `validation.every` steps on the first sequences of `val_v1`, and writes the run to `runs/<name>/seed<seed>/` (files listed under `peekaboo/train/loop.py` below). Prints the loss every `train.log_every` steps with the time left, and each validation against copying the last frame. An existing run folder is never replaced without `--overwrite`. Options: `--seed` (replaces `train.seed`), `--set key=value` to change any config value (repeatable, for example `--set train.steps=100`), `--resume`, `--stop-at`, `--overwrite`, `--device`, `--out`. Needs MNIST and `val_v1`. | Loss lines, validations at steps 0, 20, 40, and 60, then `stopped at step 60 of 60; best validation L1 ...`. |
 | `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.train --config configs/train/smoke.yaml --overwrite --stop-at 30` then the same command with `--resume` instead of `--overwrite --stop-at 30` | Interrupts a run after step 30, as a job with a time limit would, then continues it from `last.pt`. The resumed run trains on exactly the samples it would have seen without the interruption, and the logs keep one row per step. Resuming with different settings is refused. | The first command ends with `stopped at step 30 of 60`, the second with `stopped at step 60 of 60`. |
 | `python -m scripts.eval_next_frame --run runs/smoke/seed0` | Scores the next frame predictions of a run's model (`best.pt`, else `last.pt`, else `model.pt`) on every frame of `val_v1`, together with two baselines: copying the last frame, and the blank frame (the true frame with its digit erased, what a model that never draws digits would predict at best). Prints MSE and SSIM on every frame from 1 on, then on the visible moving frames (the digit fully visible in the frame and the one before, from frame 2 on), overall and per condition, speed, and k, with the MSE reduction against each baseline. Ends with the gate D16: `PASSED` when the model's MSE on the visible moving frames is at least 30% below the better baseline. Saves the score of every frame, MAE included (`next_frame_val_v1.csv`) and the summaries with the gate (`next_frame_val_v1.json`) in `<run>/eval/`. Options: `--checkpoint`, `--data`, `--n` (first sequences), `--seq-len`, `--batch-size`, `--reduction` (30% by default), `--device`. | The tables, then `gate D16 PASSED` or `FAILED`. A model trained for a few hundred steps fails: the gate is meant for the pilot run. |
-| `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.train --config configs/train/pilot_prednet5l.yaml --stop-at 20 --out runs/check` | Checks the pilot settings before the long run: one validation on the whole `val_v1` (it gives the time of a validation) and 20 training steps, written to `runs/check/` so the real run folder stays empty. | `validation at step 0 ...`, two loss lines, then `stopped at step 20 of 10000`, in about 2 minutes. |
-| `PYTORCH_ENABLE_MPS_FALLBACK=0 caffeinate -i python -u -m scripts.train --config configs/train/pilot_prednet5l.yaml 2>&1 \| tee runs/pilot_prednet5l.log` | The pilot run (step 2.4): PredNet 5 layers, 10k steps of 16 sequences of 40 frames, learning rate divided by 10 halfway, validation on the whole `val_v1` every 500 steps. `caffeinate -i` keeps the Mac awake (leave it on power, lid open), `-u` and `tee` keep a copy of the output in `runs/`. `curves.png` in the run folder is redrawn at every validation. If the run stops, the same command with `--resume` continues it from the last validation. | About 5 hours on an Apple M5. The loss should fall below the plateau of about 0.0028 where only the bar is learned. |
-| `python -m scripts.eval_next_frame --run runs/pilot_prednet5l/seed0` then `python -m scripts.show_predictions --run runs/pilot_prednet5l/seed0` | After the pilot: the gate D16 on `val_v1` and the prediction figures of the best checkpoint. | `gate D16 PASSED` if the model has learned the motion of the digits, which the figures should show. |
+| `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.train --config configs/train/pilot_prednet5l_w10.yaml --stop-at 20 --out runs/check` | Checks the pilot settings before the long run: one validation on the whole `val_v1` (about 35 s) and 20 training steps, written to `runs/check/` so the real run folder stays empty. | `validation at step 0 ...`, two loss lines, then `stopped at step 20 of 10000`, in about 2 minutes. |
+| `PYTORCH_ENABLE_MPS_FALLBACK=0 caffeinate -i python -u -m scripts.train --config configs/train/pilot_prednet5l_w10.yaml 2>&1 \| tee runs/pilot_prednet5l_w10.log` | The pilot run (step 2.4): PredNet 5 layers, 10k steps of 16 sequences of 40 frames, the visible digit pixels weighted by 10 in the loss, learning rate divided by 10 halfway, validation on the whole `val_v1` every 500 steps. `caffeinate -i` keeps the Mac awake (leave it on power, lid open), `-u` and `tee` keep a copy of the output in `runs/`. `curves.png` in the run folder is redrawn at every validation. If the run stops, the same command with `--resume` continues it from the last validation. | About 5 h 20 on an Apple M5 (1.8 s per step and 21 validations of 35 s). The validation MSE should fall well below 0.00148, the MSE of the blank frame on `val_v1`. |
+| `python -m scripts.eval_next_frame --run runs/pilot_prednet5l_w10/seed0` then `python -m scripts.show_predictions --run runs/pilot_prednet5l_w10/seed0` | After the pilot: the gate D16 on `val_v1` and the prediction figures of the best checkpoint. | `gate D16 PASSED`, and digits drawn in the `predicted` row of the figures. |
+| `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.train --config configs/train/pilot_prednet5l.yaml` | Record: the first pilot, with PredNet's own loss, which failed the gate (see "Pilot results"). | Validation MSE stuck at the blank frame's 0.00148 from step 3500 on. |
+| `PYTORCH_ENABLE_MPS_FALLBACK=0 python -m scripts.trial_pilots --variant white` and `--variant weighted` | Record: the two 2000 step trials that chose the fix (see "Pilot results"), each in `runs/trial_<variant>/seed0/`, ending with a table of the validation MSE against the blank frame and two prediction sheets. Options: `--steps`, `--weight`, `--val-sequences`, `--overwrite`, `--device`. | About 1 h each. |
 | `python -m scripts.show_predictions --run runs/bench/prednet_5l_b16_t40_mps` | Loads the checkpoint of a run (`best.pt`, else `last.pt`, else `model.pt`), predicts 4 occlusion sequences of `val_v1`, and saves in `<run>/predictions/` one sheet per sequence (`occlusion_<index>.png`, the frames around the crossing) and `occlusion.gif` (the 4 sequences side by side, every frame). Each frame shows three rows: the actual frame with the hidden ink in cyan, the prediction with the outline of the true digit (cyan where hidden), and the pixel error (red: in the frame but not predicted; blue: predicted but not in the frame). Prints the MSE of each sequence against copying the last frame. Nothing is trained. Options: `--checkpoint`, `--data` (set name or folder), `--condition` (or `any`), `--k`, `--speed`, `--n`, `--skip`, `--frames event` or `all`, `--step`, `--columns`, `--scale`, `--gain` (error brightness), `--fps`, `--device`, `--out`. | One MSE line per sequence, then `saved 5 files in ...`. |
 | `python -m scripts.render_examples` | Draws one example of every condition and every surprise tuple on real val digits, and saves in `figures/generator/`: a contact sheet (`sheet_<condition>.png`, every other frame, observed above amodal) and a GIF (`<condition>.gif`) per condition; a contact sheet (`sheet_surprise_<kind>.png`, the four sequences A, B, AB, BA one under the other) and a GIF showing the four side by side (`surprise_<kind>.gif`) per surprise; and `overview.png` with all conditions. In every tile, the cross marks the true center (cyan when hidden) and the strip below gives the state. Needs MNIST. Options: `--config`, `--split`, `--index` (another example), `--seed`, `--scale`, `--step`, `--fps`, `--out`. | `saved 21 files in .../figures/generator` and their list. |
 | `python -m scripts.validate_dataset --stream` | Same checks on sequences generated on the fly: 300 from the training mix and 5 tuples of each surprise type, plus a determinism check (the same index gives the same spec). Options: `--config`, `--split`, `--n`, `--tuples`, `--seed`. | Every check with 0 failures, then `all checks passed`. |
@@ -328,20 +330,31 @@ Next frame quality of a model against two baselines:
 
 The training loop, step based. Step s trains on the sequences s x batch to (s + 1) x batch - 1 of the on the fly stream, so every sample is new and a resumed run sees exactly the samples of an uninterrupted one. The learning rate depends only on the step: Adam at `lr`, optionally multiplied by `lr_drop_factor` after a fraction `lr_drop_at` of the steps (Lotter et al. divide it by 10 halfway). Gradient clipping is optional, and the gradient norm is logged at every step.
 
-- **Loss (decision D12).** PredNet trains on its own loss, the mean activity of its error units. Any other model trains on half the mean absolute error of its next frame predictions, which is exactly PredNet's loss with the L0 weights, so every model gets the same objective at the same scale. Every model returns `prediction` (B, T, C, H, W), where `prediction[:, t]` predicts frame t from the frames before it.
-- **Validation.** The L1 and squared next frame errors per pixel on a stored set (frames 1 and later), for the model and for copying the last frame. The best checkpoint is chosen on the validation L1 alone: occlusion metrics never take part in model selection.
+- **Loss (decision D12).** See `peekaboo/train/losses.py` below: half the mean absolute next frame error, with the visible digit pixels weighted by `loss.digit_weight` (10 in the pilot). Every model returns `prediction` (B, T, C, H, W), where `prediction[:, t]` predicts frame t from the frames before it.
+- **Validation.** On a stored set (frames 1 and later): the training objective (`val_loss`, with the same digit weight), and the plain L1 and squared errors per pixel of the model and of copying the last frame. The best checkpoint is chosen on `val_loss` alone: occlusion metrics never take part in model selection. The plain L1 would be a poor choice, since it prefers a model that does not draw the digit. There is no early stopping: every sample is new, so the validation can only plateau, and every model of a comparison gets the same number of steps.
 - `train(run_dir, model, train_data, val_data, settings, run_config, device, resume, stop_at)` writes in the run folder:
 
 | File | Content |
 | --- | --- |
 | `config.yaml` | the training config with its overrides, and the full model and data configs |
 | `train_metrics.csv` | one row per step: loss, gradient norm, learning rate, seconds |
-| `val_metrics.csv` | one row per validation: model and copy errors, best step so far |
-| `curves.png` | training loss (raw and smoothed) and validation L1 against copying the last frame |
+| `val_metrics.csv` | one row per validation: validation loss, model and copy errors, best step so far |
+| `curves.png` | training loss (raw and smoothed) and validation MSE against copying the last frame |
 | `last.pt` | checkpoint at the last validation, or where the run stopped |
-| `best.pt` | checkpoint with the lowest validation L1 |
+| `best.pt` | checkpoint with the lowest validation loss |
 
-- `TrainSettings.from_config(config)`, `learning_rate(step, settings)`, `training_loss(model, out, frames)`, `next_frame_l1(prediction, frames)`, and `validate(model, dataset, count, batch_size, seq_len, device)` are the pieces of the loop.
+- `TrainSettings.from_config(config)`, `learning_rate(step, settings)`, and `validate(model, dataset, count, batch_size, seq_len, device, digit_weight)` are the pieces of the loop.
+
+### `peekaboo/train/losses.py`
+
+The training objective of every learned model (decision D12): half the mean absolute error of the predictions of frames 1 and later, with the pixels of the visible digit in the target frame weighted by `loss.digit_weight`.
+
+- With a weight of 1, it is exactly PredNet's own loss with the L0 weights (the mean activity of its pixel error units E_0), and PredNet keeps its own loss.
+- With a weight above 1, PredNet's pixel layer term is replaced by the weighted one, and the terms of its upper layers (nonzero only with "Lall") are unchanged. Other models train on the same weighted loss.
+- `visible_digit_mask(frames)`: the visible digit pixels, found by their color (some red and no green). The bar, the background, blackout frames, and ink hidden by the bar are never selected, so the weight carries no information about a hidden digit. `scripts/train.py` refuses a weight other than 1 if the digit is not rendered in pure red.
+- `weighted_pixel_loss(prediction, frames, digit_weight)`, `training_loss(model, out, frames, digit_weight)`, and `next_frame_l1(prediction, frames)`.
+
+This is a deviation from PredNet, made necessary by the sparsity of the digit (see "Pilot results"). It changes only the training objective: PredNet's dynamics and its error units, which the surprise measures read, are unchanged.
 
 ### `peekaboo/train/metrics.py`
 
@@ -420,7 +433,11 @@ Training benchmark of PredNet on the target device, with a short run whose loss 
 
 ### `scripts/train.py`
 
-Training and resume from a training config (see the Commands table).
+Training and resume from a training config (see the Commands table). The validation set is drawn with the colors of the training data.
+
+### `scripts/trial_pilots.py`
+
+Record of the step 2.4 decision: the two 2000 step trials, white digits and weighted loss (see "Pilot results").
 
 ### `scripts/eval_next_frame.py`
 
@@ -458,13 +475,13 @@ The environment report described in the Commands table.
 
 - `configs/data/base.yaml`: generator settings shared by all splits. Frames of 64 x 96 pixels (height x width), sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the bar, 4 after it leaves, and no wall bounce in the 2 frames around entry and exit. Visibility thresholds: occluded at most 2% visible ink, visible at least 95%. Occlusion durations k in {2, 4, 6, 8} at speeds {2, 3, 4}, and k = 12 at speeds {2, 3}. Control bars at least 4 px wide. Training mix 30% control, 60% occlusion, 10% hidden bounce, with k drawn with weights proportional to k. Surprises: 12 px vertical offset, a forward jump of half the hidden frames for "early", speed surprises from 2 to 4 and from 4 to 2 px/frame, and 100 placements of A tried per digit before another digit is drawn. Rendering: red digit, mid gray bar (0.5).
 - `configs/data/val_v1.yaml` and `configs/data/test_v1.yaml`: the validation and test sets (next section).
-- `configs/train/<name>.yaml`: one training run. It points to a model config and a data config, and sets the steps, the batch size, the frames per sequence, the seed, the optimizer (learning rate, optional drop and clipping), and the validation (stored set, interval, number of sequences). `configs/train/smoke.yaml` is a one minute check of the whole pipeline. `configs/train/pilot_prednet5l.yaml` is the pilot run of the main model: 10k steps of 16 sequences of 40 frames (160,000 new sequences), Adam at 0.001 divided by 10 halfway as in Lotter et al., validation on the whole `val_v1` every 500 steps.
+- `configs/train/<name>.yaml`: one training run. It points to a model config and a data config, and sets the steps, the batch size, the frames per sequence, the seed, the optimizer (learning rate, optional drop and clipping), and the validation (stored set, interval, number of sequences). `loss.digit_weight` sets the weight of the visible digit pixels in the loss (1 for PredNet's own loss). `configs/train/smoke.yaml` is a one minute check of the whole pipeline. `configs/train/pilot_prednet5l_w10.yaml` is the pilot run of the main model: 10k steps of 16 sequences of 40 frames (160,000 new sequences), digit pixels weighted by 10, Adam at 0.001 divided by 10 halfway as in Lotter et al., validation on the whole `val_v1` every 500 steps. `configs/train/pilot_prednet5l.yaml` is the same run with PredNet's own loss, kept to reproduce the first pilot.
 
 ## Validation and test sets
 
 Training uses sequences generated on the fly from the training digits. Validation and test sets are fixed and stored, each built by `make_dataset` from a set config with its own base seed.
 
-**`val_v1`** (1000 sequences): the training mix, with the 5000 held out digits of the MNIST train file. It is used for model selection and early stopping on the next frame loss only, never on occlusion metrics, so the research questions are not tuned on.
+**`val_v1`** (1000 sequences): the training mix, with the 5000 held out digits of the MNIST train file. It is used for model selection on the next frame loss only, never on occlusion metrics, so the research questions are not tuned on.
 
 **`test_v1`** (22200 sequences), with digits of the MNIST test file (shapes never seen in training):
 
@@ -480,6 +497,24 @@ Training uses sequences generated on the fly from the training digits. Validatio
 | tuples: speed_slow | 4, 8 | 4 | 100 tuples | 800 | RQ3, B at 2 px/frame |
 
 400 sequences per cell give a standard error of about 0.25 px on a mean position error with a spread of 5 px. With 100 tuples per cell, the surprise AUROC has a standard error of about 0.04. On disk, the test set takes about 80 MB, since no frames are stored.
+
+## Pilot results
+
+**First pilot: PredNet's own loss fails.** PredNet 5 layers, 10k steps of 16 sequences of 40 frames (`configs/train/pilot_prednet5l.yaml`). The loss fell below the plateau where only the bar is known, but from step 3500 on the validation MSE stayed at 0.00149, the MSE of the blank frame (the true frame with its digit erased, 0.00148). The learning rate drop at step 5000 did not change it. The prediction figures show a perfect bar and background, and no digit at all. On the visible moving frames of `val_v1`, the MSE was 0.00205 against 0.00205 for the blank frame and 0.00263 for the copy: the gate D16 failed.
+
+The cause is the sparsity of the digit in the loss. The red digit covers about 1.2% of the pixels, on one channel out of three, so about 0.4% of the loss values, against about 7% in the usual Moving MNIST (two white 28 px digits on 64 x 64 frames), where PredNet learns to draw digits. With an L1 loss, a pixel that is unlikely to hold ink is best predicted empty: as long as the model cannot place the digit to the pixel, erasing it costs less than drawing it, and the model settled there.
+
+**Two fixes, tried for 2000 steps each** (`scripts/trial_pilots.py`, same initialization and training sequences, constant learning rate):
+
+| Variant | Validation MSE at step 2000 | Blank frame | Below the blank frame |
+| --- | --- | --- | --- |
+| first pilot, for comparison | 0.00161 | 0.00148 | -9% (then 0%) |
+| white digit (three channels), PredNet's own loss | 0.00446 | 0.00444 | -0.5% |
+| red digit, visible digit pixels weighted by 10 | 0.00063 | 0.00148 | +57% (13%, 40%, 51%, 57% at steps 500 to 2000) |
+
+A white digit, three times heavier in the loss, still settled on the blank solution. The weighted loss drew the digit within 500 steps, sharp and in the right place, and after only 2000 steps passed the gate D16 by far: on the visible moving frames, an MSE 72% below the blank frame and 78% below the copy, at every speed, in every condition, and for every k (59% below the blank frame at k = 12). The drawn digit is slightly thicker than the true one, as expected when missing ink costs ten times more than extra ink.
+
+**Decision (D12).** Every learned model trains with the visible digit pixels weighted by 10 (`loss.digit_weight: 10`). The weight changes only the training objective, uses only ink visible in the target frame, and gives no information about a hidden digit. The full pilot is `configs/train/pilot_prednet5l_w10.yaml`.
 
 ## Conventions
 
@@ -514,6 +549,7 @@ peekaboo/           the package
     next_frame.py   next frame scores, SSIM, gate D16
   train/            training
     loop.py         training loop, validation, resume
+    losses.py       training objective, digit weighted loss
     metrics.py      CSV logs
     checkpoint.py   save and load checkpoints
   viz/              figures
@@ -537,6 +573,7 @@ scripts/            command line entry points
   train.py              training and resume
   eval_next_frame.py    next frame scores and gate D16
   show_predictions.py   prediction figures of a saved model
+  trial_pilots.py       record of the 2.4 trials
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set
@@ -544,7 +581,8 @@ configs/            one config file per experiment
   models/prednet_5l.yaml  PredNet, 5 layers
   models/prednet_4l.yaml  PredNet, 4 layers
   train/smoke.yaml  short training run that checks the pipeline
-  train/pilot_prednet5l.yaml  pilot run of PredNet 5 layers
+  train/pilot_prednet5l_w10.yaml  pilot run of PredNet 5 layers, weighted loss
+  train/pilot_prednet5l.yaml  first pilot, PredNet's own loss (failed)
 tests/              unit tests (pytest)
 environment.yml     conda environment "peekaboo"
 pyproject.toml      pytest settings (nothing to install)

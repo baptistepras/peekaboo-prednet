@@ -16,8 +16,8 @@ def moving_average(values: np.ndarray, window: int) -> np.ndarray:
 
 
 def plot_training(run_dir: str | Path, title: str = "") -> Path:
-    """Save curves.png: the training loss (raw and smoothed), and the validation L1 error against copying the last
-    frame."""
+    """Save curves.png: the training loss (raw and smoothed), and the validation MSE against copying the last frame
+    (the gate D16 compares MSEs)."""
     run_dir = Path(run_dir)
     train = read_csv(run_dir / "train_metrics.csv")
     val = read_csv(run_dir / "val_metrics.csv")
@@ -35,15 +35,15 @@ def plot_training(run_dir: str | Path, title: str = "") -> Path:
     left.set_ylabel("training loss")
     if val:
         steps = [int(r["step"]) for r in val]
-        right.plot(steps, [float(r["val_l1"]) for r in val], "o-", ms=3, color="C0", label="model")
-        right.plot(steps, [float(r["copy_l1"]) for r in val], "--", color="0.4", label="copy last frame")
+        right.plot(steps, [float(r["val_mse"]) for r in val], "o-", ms=3, color="C0", label="model")
+        right.plot(steps, [float(r["copy_mse"]) for r in val], "--", color="0.4", label="copy last frame")
         best = int(val[-1]["best_step"])
         if best >= 0:
             right.axvline(best, color="C2", lw=0.8, label=f"best, step {best}")
         right.set_yscale("log")
         right.legend(fontsize=8)
     right.set_xlabel("step")
-    right.set_ylabel("validation L1 error per pixel")
+    right.set_ylabel("validation MSE per pixel")
     fig.suptitle(title or run_dir.name, fontsize=9)
     fig.tight_layout()
     path = run_dir / "curves.png"

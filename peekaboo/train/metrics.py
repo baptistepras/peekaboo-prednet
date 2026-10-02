@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 
 TRAIN_FIELDS = ("step", "loss", "grad_norm", "lr", "seconds")
-VAL_FIELDS = ("step", "val_l1", "val_mse", "copy_l1", "copy_mse", "best_step")
+VAL_FIELDS = ("step", "val_loss", "val_l1", "val_mse", "copy_l1", "copy_mse", "best_step")
 
 
 class CsvLog:
