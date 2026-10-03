@@ -98,7 +98,7 @@ The full tree is in [docs/implementation.md](docs/implementation.md#repository-l
 - N. Srivastava, E. Mansimov, and R. Salakhutdinov. Unsupervised learning of video representations using LSTMs. *ICML*, 2015.
 - L. S. Piloto, A. Weinstein, P. Battaglia, and M. Botvinick. Intuitive physics learning in a deep-learning model inspired by developmental psychology. *Nature Human Behaviour*, 2022.
 - A. Shamsian, O. Kleinfeld, A. Globerson, and G. Chechik. Learning object permanence from video. *ECCV*, 2020.
-- M. Traub, F. Becker, S. Otte, and M. V. Butz. Learning object permanence from videos via latent imaginations. *ICLR*, 2024.
+- M. Traub, F. Becker, S. Otte, and M. V. Butz. Learning object permanence from videos via latent imaginations. *ICANN*, 2024.
 
 This project reimplements PredNet from the paper and uses the original code and OpenSTL as read only references. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
