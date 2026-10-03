@@ -8,6 +8,12 @@ A digit moves behind an occluder and reappears, as expected or in a surprising w
 - a clean PyTorch PredNet, with ablations, a ConvLSTM baseline, and programmed trackers (Kalman filters);
 - a measurement protocol, latent probes, and visualizations.
 
+<p align="center">
+  <img src="runs/pilot_prednet5l_w10/seed0/predictions/occlusion.gif" alt="PredNet predictions on occlusion sequences" width="49%">
+  <img src="runs/pilot_prednet5l_w10/seed0/predictions/hidden_bounce.gif" alt="PredNet predictions on hidden bounce sequences" width="49%">
+</p>
+<p align="center"><sub>Pilot PredNet on validation sequences: occlusion (left) and hidden bounce (right). For each sequence: true frame (hidden ink in cyan), prediction made before the frame arrives, prediction error.</sub></p>
+
 ## Research questions
 
 1. **Tracking through occlusion.** While the object is hidden, how fast does each model lose it? We read the answer both from the predicted frames and, with linear probes, from the model's internal state.
