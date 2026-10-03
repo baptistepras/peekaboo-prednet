@@ -60,7 +60,9 @@ def main() -> int:
 
     if args.resume:
         if not (run_dir / "last.pt").exists():
-            print(f"cannot resume: {run_dir / 'last.pt'} does not exist")
+            finished = (run_dir / "best.pt").exists()
+            print(f"cannot resume: {run_dir / 'last.pt'} does not exist" +
+                  (" (the run is finished: only best.pt is kept)" if finished else ""))
             return 1
         if load_config(run_dir / "config.yaml") != run_config:
             print(f"cannot resume: the settings differ from {run_dir / 'config.yaml'}; resume with the same config "

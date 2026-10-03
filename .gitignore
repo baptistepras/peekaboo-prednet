@@ -14,7 +14,7 @@ environment.lock.yml
 # with the same name (peekaboo/data/, configs/data/) tracked
 /data/
 /datasets/
-/runs/
+/runs/*
 /outputs/
 /checkpoints/
 /figures/
@@ -72,6 +72,13 @@ htmlcov/
 .vscode/
 .idea/
 .env
+
+# Runs kept in git as reference results, with their checkpoint, logs, figures, and evaluation.
+# Placed after the rules on data, weights, and media so that it overrides them, and before
+# the macOS rules so that .DS_Store files stay ignored.
+!/runs/pilot_prednet5l_w10/
+!/runs/pilot_prednet5l_w10/**
+!/runs/pilot_prednet5l_w10.log
 
 # macOS
 .DS_Store

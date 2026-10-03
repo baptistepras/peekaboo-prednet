@@ -1,0 +1,124 @@
+pilot_prednet5l_w10 seed 0: 3,131,628 parameters on mps (Apple GPU), 10000 steps of 16 x 40 frames, digit pixels weighted x10, validation on 1000 sequences of val_v1 every 500 steps
+run folder: /Users/baptiste/Documents/Predicting Coding/runs/pilot_prednet5l_w10/seed0
+validation at step 0: loss 0.07090, L1 0.12394 (copy last frame 0.00268), MSE 0.06076 (copy 0.00189), best step -1
+step 100/10000: loss 0.03520, lr 0.001, 1.78 s/step, 4.9 h left
+step 200/10000: loss 0.00791, lr 0.001, 1.82 s/step, 4.9 h left
+step 300/10000: loss 0.00669, lr 0.001, 1.78 s/step, 4.8 h left
+step 400/10000: loss 0.00616, lr 0.001, 1.81 s/step, 4.8 h left
+step 500/10000: loss 0.00570, lr 0.001, 1.96 s/step, 5.2 h left
+validation at step 500: loss 0.00544, L1 0.00432 (copy last frame 0.00268), MSE 0.00129 (copy 0.00189), best step 500
+step 600/10000: loss 0.00543, lr 0.001, 1.96 s/step, 5.1 h left
+step 700/10000: loss 0.00510, lr 0.001, 1.99 s/step, 5.2 h left
+step 800/10000: loss 0.00488, lr 0.001, 1.92 s/step, 4.9 h left
+step 900/10000: loss 0.00464, lr 0.001, 1.93 s/step, 4.9 h left
+step 1000/10000: loss 0.00434, lr 0.001, 1.84 s/step, 4.6 h left
+validation at step 1000: loss 0.00425, L1 0.00311 (copy last frame 0.00268), MSE 0.00089 (copy 0.00189), best step 1000
+step 1100/10000: loss 0.00423, lr 0.001, 1.91 s/step, 4.7 h left
+step 1200/10000: loss 0.00408, lr 0.001, 1.79 s/step, 4.4 h left
+step 1300/10000: loss 0.00396, lr 0.001, 1.88 s/step, 4.6 h left
+step 1400/10000: loss 0.00375, lr 0.001, 1.91 s/step, 4.6 h left
+step 1500/10000: loss 0.00368, lr 0.001, 1.80 s/step, 4.2 h left
+validation at step 1500: loss 0.00375, L1 0.00290 (copy last frame 0.00268), MSE 0.00073 (copy 0.00189), best step 1500
+step 1600/10000: loss 0.00362, lr 0.001, 1.95 s/step, 4.5 h left
+step 1700/10000: loss 0.00351, lr 0.001, 1.99 s/step, 4.6 h left
+step 1800/10000: loss 0.00342, lr 0.001, 1.87 s/step, 4.2 h left
+step 1900/10000: loss 0.00331, lr 0.001, 1.95 s/step, 4.4 h left
+step 2000/10000: loss 0.00326, lr 0.001, 1.78 s/step, 4.0 h left
+validation at step 2000: loss 0.00321, L1 0.00239 (copy last frame 0.00268), MSE 0.00063 (copy 0.00189), best step 2000
+step 2100/10000: loss 0.00322, lr 0.001, 1.80 s/step, 4.0 h left
+step 2200/10000: loss 0.00316, lr 0.001, 1.79 s/step, 3.9 h left
+step 2300/10000: loss 0.00311, lr 0.001, 1.80 s/step, 3.8 h left
+step 2400/10000: loss 0.00308, lr 0.001, 1.81 s/step, 3.8 h left
+step 2500/10000: loss 0.00304, lr 0.001, 1.81 s/step, 3.8 h left
+validation at step 2500: loss 0.00298, L1 0.00223 (copy last frame 0.00268), MSE 0.00059 (copy 0.00189), best step 2500
+step 2600/10000: loss 0.00301, lr 0.001, 2.04 s/step, 4.2 h left
+step 2700/10000: loss 0.00294, lr 0.001, 1.87 s/step, 3.8 h left
+step 2800/10000: loss 0.00286, lr 0.001, 1.94 s/step, 3.9 h left
+step 2900/10000: loss 0.00281, lr 0.001, 1.98 s/step, 3.9 h left
+step 3000/10000: loss 0.00282, lr 0.001, 1.97 s/step, 3.8 h left
+validation at step 3000: loss 0.00275, L1 0.00200 (copy last frame 0.00268), MSE 0.00053 (copy 0.00189), best step 3000
+step 3100/10000: loss 0.00275, lr 0.001, 1.98 s/step, 3.8 h left
+step 3200/10000: loss 0.00272, lr 0.001, 1.98 s/step, 3.7 h left
+step 3300/10000: loss 0.00269, lr 0.001, 1.99 s/step, 3.7 h left
+step 3400/10000: loss 0.00266, lr 0.001, 1.99 s/step, 3.7 h left
+step 3500/10000: loss 0.00264, lr 0.001, 1.97 s/step, 3.6 h left
+validation at step 3500: loss 0.00257, L1 0.00181 (copy last frame 0.00268), MSE 0.00047 (copy 0.00189), best step 3500
+step 3600/10000: loss 0.00259, lr 0.001, 1.89 s/step, 3.4 h left
+step 3700/10000: loss 0.00258, lr 0.001, 1.90 s/step, 3.3 h left
+step 3800/10000: loss 0.00246, lr 0.001, 1.79 s/step, 3.1 h left
+step 3900/10000: loss 0.00245, lr 0.001, 1.89 s/step, 3.2 h left
+step 4000/10000: loss 0.00245, lr 0.001, 1.93 s/step, 3.2 h left
+validation at step 4000: loss 0.00240, L1 0.00159 (copy last frame 0.00268), MSE 0.00038 (copy 0.00189), best step 4000
+step 4100/10000: loss 0.00241, lr 0.001, 1.96 s/step, 3.2 h left
+step 4200/10000: loss 0.00240, lr 0.001, 1.99 s/step, 3.2 h left
+step 4300/10000: loss 0.00235, lr 0.001, 1.99 s/step, 3.1 h left
+step 4400/10000: loss 0.00227, lr 0.001, 2.02 s/step, 3.1 h left
+step 4500/10000: loss 0.00219, lr 0.001, 2.03 s/step, 3.1 h left
+validation at step 4500: loss 0.00207, L1 0.00104 (copy last frame 0.00268), MSE 0.00017 (copy 0.00189), best step 4500
+step 4600/10000: loss 0.00214, lr 0.001, 1.96 s/step, 2.9 h left
+step 4700/10000: loss 0.00212, lr 0.001, 1.97 s/step, 2.9 h left
+step 4800/10000: loss 0.00205, lr 0.001, 1.85 s/step, 2.7 h left
+step 4900/10000: loss 0.00207, lr 0.001, 1.82 s/step, 2.6 h left
+step 5000/10000: loss 0.00205, lr 0.001, 1.80 s/step, 2.5 h left
+validation at step 5000: loss 0.00202, L1 0.00103 (copy last frame 0.00268), MSE 0.00016 (copy 0.00189), best step 5000
+step 5100/10000: loss 0.00189, lr 0.0001, 1.86 s/step, 2.5 h left
+step 5200/10000: loss 0.00187, lr 0.0001, 1.82 s/step, 2.4 h left
+step 5300/10000: loss 0.00187, lr 0.0001, 1.90 s/step, 2.5 h left
+step 5400/10000: loss 0.00182, lr 0.0001, 1.86 s/step, 2.4 h left
+step 5500/10000: loss 0.00183, lr 0.0001, 1.95 s/step, 2.4 h left
+validation at step 5500: loss 0.00178, L1 0.00077 (copy last frame 0.00268), MSE 0.00014 (copy 0.00189), best step 5500
+step 5600/10000: loss 0.00181, lr 0.0001, 1.95 s/step, 2.4 h left
+step 5700/10000: loss 0.00177, lr 0.0001, 1.77 s/step, 2.1 h left
+step 5800/10000: loss 0.00181, lr 0.0001, 1.83 s/step, 2.1 h left
+step 5900/10000: loss 0.00182, lr 0.0001, 1.77 s/step, 2.0 h left
+step 6000/10000: loss 0.00178, lr 0.0001, 1.87 s/step, 2.1 h left
+validation at step 6000: loss 0.00177, L1 0.00075 (copy last frame 0.00268), MSE 0.00014 (copy 0.00189), best step 6000
+step 6100/10000: loss 0.00177, lr 0.0001, 1.80 s/step, 2.0 h left
+step 6200/10000: loss 0.00179, lr 0.0001, 1.79 s/step, 1.9 h left
+step 6300/10000: loss 0.00179, lr 0.0001, 1.76 s/step, 1.8 h left
+step 6400/10000: loss 0.00181, lr 0.0001, 1.74 s/step, 1.7 h left
+step 6500/10000: loss 0.00179, lr 0.0001, 1.78 s/step, 1.7 h left
+validation at step 6500: loss 0.00175, L1 0.00075 (copy last frame 0.00268), MSE 0.00014 (copy 0.00189), best step 6500
+step 6600/10000: loss 0.00179, lr 0.0001, 1.81 s/step, 1.7 h left
+step 6700/10000: loss 0.00181, lr 0.0001, 1.75 s/step, 1.6 h left
+step 6800/10000: loss 0.00180, lr 0.0001, 1.80 s/step, 1.6 h left
+step 6900/10000: loss 0.00179, lr 0.0001, 1.78 s/step, 1.5 h left
+step 7000/10000: loss 0.00178, lr 0.0001, 1.79 s/step, 1.5 h left
+validation at step 7000: loss 0.00174, L1 0.00075 (copy last frame 0.00268), MSE 0.00014 (copy 0.00189), best step 7000
+step 7100/10000: loss 0.00179, lr 0.0001, 1.88 s/step, 1.5 h left
+step 7200/10000: loss 0.00178, lr 0.0001, 1.95 s/step, 1.5 h left
+step 7300/10000: loss 0.00176, lr 0.0001, 1.96 s/step, 1.5 h left
+step 7400/10000: loss 0.00179, lr 0.0001, 1.95 s/step, 1.4 h left
+step 7500/10000: loss 0.00177, lr 0.0001, 1.98 s/step, 1.4 h left
+validation at step 7500: loss 0.00172, L1 0.00073 (copy last frame 0.00268), MSE 0.00014 (copy 0.00189), best step 7500
+step 7600/10000: loss 0.00175, lr 0.0001, 1.96 s/step, 1.3 h left
+step 7700/10000: loss 0.00176, lr 0.0001, 1.96 s/step, 1.3 h left
+step 7800/10000: loss 0.00177, lr 0.0001, 1.97 s/step, 1.2 h left
+step 7900/10000: loss 0.00177, lr 0.0001, 1.98 s/step, 1.2 h left
+step 8000/10000: loss 0.00176, lr 0.0001, 1.95 s/step, 1.1 h left
+validation at step 8000: loss 0.00171, L1 0.00071 (copy last frame 0.00268), MSE 0.00014 (copy 0.00189), best step 8000
+step 8100/10000: loss 0.00174, lr 0.0001, 1.94 s/step, 1.0 h left
+step 8200/10000: loss 0.00174, lr 0.0001, 1.99 s/step, 60 min left
+step 8300/10000: loss 0.00175, lr 0.0001, 1.99 s/step, 56 min left
+step 8400/10000: loss 0.00175, lr 0.0001, 1.98 s/step, 53 min left
+step 8500/10000: loss 0.00172, lr 0.0001, 1.96 s/step, 49 min left
+validation at step 8500: loss 0.00169, L1 0.00071 (copy last frame 0.00268), MSE 0.00013 (copy 0.00189), best step 8500
+step 8600/10000: loss 0.00176, lr 0.0001, 1.93 s/step, 45 min left
+step 8700/10000: loss 0.00173, lr 0.0001, 1.90 s/step, 41 min left
+step 8800/10000: loss 0.00174, lr 0.0001, 1.91 s/step, 38 min left
+step 8900/10000: loss 0.00173, lr 0.0001, 1.86 s/step, 34 min left
+step 9000/10000: loss 0.00175, lr 0.0001, 1.85 s/step, 31 min left
+validation at step 9000: loss 0.00169, L1 0.00069 (copy last frame 0.00268), MSE 0.00013 (copy 0.00189), best step 8500
+step 9100/10000: loss 0.00172, lr 0.0001, 1.89 s/step, 28 min left
+step 9200/10000: loss 0.00169, lr 0.0001, 1.90 s/step, 25 min left
+step 9300/10000: loss 0.00171, lr 0.0001, 1.89 s/step, 22 min left
+step 9400/10000: loss 0.00173, lr 0.0001, 2.08 s/step, 21 min left
+step 9500/10000: loss 0.00174, lr 0.0001, 1.96 s/step, 16 min left
+validation at step 9500: loss 0.00169, L1 0.00069 (copy last frame 0.00268), MSE 0.00013 (copy 0.00189), best step 9500
+step 9600/10000: loss 0.00175, lr 0.0001, 1.90 s/step, 13 min left
+step 9700/10000: loss 0.00173, lr 0.0001, 2.07 s/step, 10 min left
+step 9800/10000: loss 0.00172, lr 0.0001, 1.96 s/step, 7 min left
+step 9900/10000: loss 0.00174, lr 0.0001, 2.17 s/step, 4 min left
+step 10000/10000: loss 0.00169, lr 0.0001, 2.01 s/step, 0 s left
+validation at step 10000: loss 0.00167, L1 0.00069 (copy last frame 0.00268), MSE 0.00013 (copy 0.00189), best step 10000
+stopped at step 10000 of 10000; best validation loss 0.00167 at step 10000

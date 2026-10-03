@@ -51,14 +51,16 @@ def run(run_dir: Path, pool: DigitPool, settings: GeneratorSettings, resume: boo
 
 @pytest.mark.filterwarnings("error")
 def test_tiny_run_writes_every_file(tmp_path: Path, pool: DigitPool, settings: GeneratorSettings) -> None:
-    """A 4 step run logs every step, validates at steps 0, 2, and 4, and saves its checkpoints and curves, without any
-    warning."""
+    """A 4 step run logs every step, validates at steps 0, 2, and 4, saves its curves and best checkpoint, deletes
+    last.pt at the end, and raises no warning."""
     run(tmp_path, pool, settings)
-    for name in ("config.yaml", "train_metrics.csv", "val_metrics.csv", "curves.png", "last.pt", "best.pt"):
+    for name in ("config.yaml", "train_metrics.csv", "val_metrics.csv", "curves.png", "best.pt"):
         assert (tmp_path / name).exists(), name
+    assert not (tmp_path / "last.pt").exists()  # deleted once the run is finished
     assert [int(r["step"]) for r in read_csv(tmp_path / "train_metrics.csv")] == [1, 2, 3, 4]
-    assert [int(r["step"]) for r in read_csv(tmp_path / "val_metrics.csv")] == [0, 2, 4]
-    assert load_checkpoint(tmp_path / "last.pt")["step"] == 4
+    val = read_csv(tmp_path / "val_metrics.csv")
+    assert [int(r["step"]) for r in val] == [0, 2, 4]
+    assert load_checkpoint(tmp_path / "best.pt")["step"] == int(val[-1]["best_step"])
     rates = [float(r["lr"]) for r in read_csv(tmp_path / "train_metrics.csv")]
     assert rates == pytest.approx([1e-2, 1e-2, 1e-3, 1e-3])
 
@@ -67,8 +69,9 @@ def test_resume_equals_an_uninterrupted_run(tmp_path: Path, pool: DigitPool, set
     """Stopping after step 3 and resuming gives the same weights and the same logged losses as one run."""
     whole = run(tmp_path / "whole", pool, settings)
     run(tmp_path / "split", pool, settings, stop_at=3)
-    assert load_checkpoint(tmp_path / "split" / "last.pt")["step"] == 3
+    assert load_checkpoint(tmp_path / "split" / "last.pt")["step"] == 3  # kept: the run is not finished
     resumed = run(tmp_path / "split", pool, settings, resume=True)
+    assert not (tmp_path / "split" / "last.pt").exists()
     for name, value in whole.state_dict().items():
         assert torch.equal(value, resumed.state_dict()[name]), name
     for log in ("train_metrics.csv", "val_metrics.csv"):

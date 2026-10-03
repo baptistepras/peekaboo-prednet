@@ -34,7 +34,7 @@ A constant velocity Kalman filter is close to optimal on this synthetic motion. 
 | 2.1 | Checkpoints, and figures of the predictions next to the truth (hidden ink in cyan, error maps) | done |
 | 2.2 | Training loop: training configs, validation, best and last checkpoints, logs, curves, exact resume | done |
 | 2.3 | Next frame evaluation (MSE, MAE, SSIM against copying the last frame and against the frame without its digit) and the go/no-go gate | done |
-| 2.4 | Pilot training of PredNet 5 layers and the go/no-go decision: PredNet's own loss fails, a loss weighting the digit pixels passes (see "Pilot results") | in progress |
+| 2.4 | Pilot training of PredNet 5 layers and the go/no-go decision: PredNet's own loss fails, a loss weighting the digit pixels passes the gate at 95% (see "Pilot results") | done |
 | 2.5 to 2.10 | PredNet ablations, ConvLSTM, trackers, probes, training sweep | planned |
 | 3 | Evaluation, probes, figures | planned |
 
@@ -340,7 +340,7 @@ The training loop, step based. Step s trains on the sequences s x batch to (s + 
 | `train_metrics.csv` | one row per step: loss, gradient norm, learning rate, seconds |
 | `val_metrics.csv` | one row per validation: validation loss, model and copy errors, best step so far |
 | `curves.png` | training loss (raw and smoothed) and validation MSE against copying the last frame |
-| `last.pt` | checkpoint at the last validation, or where the run stopped |
+| `last.pt` | checkpoint at the last validation, or where the run stopped; deleted when the run is finished, since it only serves to resume |
 | `best.pt` | checkpoint with the lowest validation loss |
 
 - `TrainSettings.from_config(config)`, `learning_rate(step, settings)`, and `validate(model, dataset, count, batch_size, seq_len, device, digit_weight)` are the pieces of the loop.
@@ -514,7 +514,19 @@ The cause is the sparsity of the digit in the loss. The red digit covers about 1
 
 A white digit, three times heavier in the loss, still settled on the blank solution. The weighted loss drew the digit within 500 steps, sharp and in the right place, and after only 2000 steps passed the gate D16 by far: on the visible moving frames, an MSE 72% below the blank frame and 78% below the copy, at every speed, in every condition, and for every k (59% below the blank frame at k = 12). The drawn digit is slightly thicker than the true one, as expected when missing ink costs ten times more than extra ink.
 
-**Decision (D12).** Every learned model trains with the visible digit pixels weighted by 10 (`loss.digit_weight: 10`). The weight changes only the training objective, uses only ink visible in the target frame, and gives no information about a hidden digit. The full pilot is `configs/train/pilot_prednet5l_w10.yaml`.
+**Decision (D12).** Every learned model trains with the visible digit pixels weighted by 10 (`loss.digit_weight: 10`). The weight changes only the training objective, uses only ink visible in the target frame, and gives no information about a hidden digit.
+
+**Full pilot with the weighted loss: the gate passes by far.** Same settings as the first pilot, with the digit weight of 10 (`configs/train/pilot_prednet5l_w10.yaml`, 10k steps, about 5 h 30 on an Apple M5). On the visible moving frames of `val_v1`, the best checkpoint (step 10000) has an MSE of 0.00010, 95% below the blank frame (0.00205) and 96% below the copy (0.00263), with an SSIM of 0.999. The reduction against the blank frame is between 94% and 96% in every condition, at every speed, and for every k, so PredNet does not fall back to copying on fast digits.
+
+| Step | 500 | 1000 | 2000 | 3000 | 4000 | 4500 | 5000 | 6000 | 8000 | 10000 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Validation MSE (all frames, blank frame 0.00148) | 0.00129 | 0.00089 | 0.00063 | 0.00053 | 0.00038 | 0.00017 | 0.00016 | 0.00014 | 0.00014 | 0.00013 |
+
+The validation MSE fell by half between steps 4000 and 4500, a sudden change in what the model had learned, 500 steps before the learning rate drop. After the drop, it improved only slowly. With another seed or another model, such a change could come after the drop, and much later with a learning rate ten times smaller: the training sweep (step 2.10) should therefore keep the high learning rate longer, for example 15k steps with the drop at 10k, and check that every run has passed this change before its drop.
+
+The prediction figures show the digit drawn sharp and in place on every visible frame, and nothing under the bar, which is the correct prediction of the next frame there. Two examples already point at tracking. In an occlusion sequence, the model draws the part of the digit that comes out at the edge of the bar in the first frame of the reappearance, from frames in which the digit was fully hidden. In a hidden bounce sequence, it draws the digit coming back out on the side it entered, at about the right time. Phase 3 measures this on the whole test set.
+
+The run is kept in git as the reference result of step 2.4: `runs/pilot_prednet5l_w10/` (settings, logs, curves, `best.pt`, evaluation, and prediction figures) and its output `runs/pilot_prednet5l_w10.log`.
 
 ## Conventions
 
@@ -589,7 +601,7 @@ pyproject.toml      pytest settings (nothing to install)
 THIRD_PARTY_NOTICES.md  references and licenses
 ```
 
-These folders are created by the scripts and are not tracked by git: `data/`, `runs/`, `figures/`. The local references `papers/` and `third_party/` are not tracked either. The full list is in [`.gitignore`](.gitignore).
+These folders are created by the scripts and are not tracked by git: `data/`, `runs/`, `figures/`. The one exception is the reference pilot run `runs/pilot_prednet5l_w10/` (see "Pilot results"). The local references `papers/` and `third_party/` are not tracked either. The full list is in [`.gitignore`](.gitignore).
 
 ## References and licenses
 

@@ -109,7 +109,8 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
 
     Writes in run_dir: config.yaml, train_metrics.csv, val_metrics.csv, curves.png, last.pt (at every validation and
     when stopping), and best.pt (lowest validation loss). With resume, training continues from last.pt. With stop_at,
-    training stops after that step and saves last.pt, as a job with a time limit would.
+    training stops after that step and saves last.pt, as a job with a time limit would. When the last step is done,
+    last.pt is deleted: it is only needed to resume, and best.pt is the model of the run.
     """
     run_dir = Path(run_dir)
     optimizer = torch.optim.Adam(model.parameters(), lr=settings.lr)
@@ -182,6 +183,8 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
                 shutil.copyfile(run_dir / "last.pt", run_dir / "best.pt")
             plot_training(run_dir, f"{run_config.get('name', '')} {run_dir.name}".strip())
 
+    if last_saved == settings.steps and (run_dir / "best.pt").exists():
+        (run_dir / "last.pt").unlink()
     log(f"stopped at step {last_saved} of {settings.steps}; best validation loss {best['val_loss']:.5f} at step "
         f"{best['step']}")
     return {"step": last_saved, "best": best}

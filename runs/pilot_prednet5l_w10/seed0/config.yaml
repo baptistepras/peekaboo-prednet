@@ -1,0 +1,107 @@
+name: pilot_prednet5l_w10
+train_config:
+  name: pilot_prednet5l_w10
+  model: configs/models/prednet_5l.yaml
+  data: configs/data/base.yaml
+  train:
+    steps: 10000
+    batch_size: 16
+    seq_len: 40
+    workers: 4
+    seed: 0
+    log_every: 100
+  optimizer:
+    lr: 0.001
+    lr_drop_at: 0.5
+    lr_drop_factor: 0.1
+    grad_clip: null
+  loss:
+    digit_weight: 10
+  validation:
+    data: val_v1
+    every: 500
+    sequences: null
+    batch_size: 16
+model:
+  model: prednet
+  stack_sizes:
+  - 3
+  - 16
+  - 32
+  - 64
+  - 128
+  kernel_size: 3
+  pixel_max: 1.0
+  layer_loss_weights: L0
+data:
+  frame_height: 64
+  frame_width: 96
+  seq_len: 40
+  digits:
+    box_size: 20
+    ink_threshold: 0.1
+    val_size: 5000
+    holdout_seed: 0
+  motion:
+    x_speeds:
+    - 2
+    - 3
+    - 4
+    y_velocities:
+    - -2
+    - -1
+    - 0
+    - 1
+    - 2
+    n_context: 8
+    n_post: 4
+    n_clean: 2
+  visibility:
+    occluded_max: 0.02
+    visible_min: 0.95
+  occluder:
+    k_speeds:
+      2:
+      - 2
+      - 3
+      - 4
+      4:
+      - 2
+      - 3
+      - 4
+      6:
+      - 2
+      - 3
+      - 4
+      8:
+      - 2
+      - 3
+      - 4
+      12:
+      - 2
+      - 3
+    allow_contact_outside_window: true
+    max_attempts: 500
+    control_min_width: 4
+  conditions:
+    train_mix:
+      control: 0.3
+      occlusion: 0.6
+      hidden_bounce: 0.1
+    k_weights:
+      2: 2
+      4: 4
+      6: 6
+      8: 8
+      12: 12
+    max_digit_draws: 20
+  surprises:
+    offset_px: 12
+    early_fraction: 0.5
+    max_attempts: 100
+  render:
+    digit_rgb:
+    - 1.0
+    - 0.0
+    - 0.0
+    bar_gray: 0.5
