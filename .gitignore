@@ -1,12 +1,4 @@
-# Personal working notes and machine specific files, kept locally only
-PROJECT_BRIEF.md
-PLAN.md
-CLAUDE.md
-environment.lock.yml
-.claude/
-
-# Reference material, kept locally only.
-# Third party clones have their own git history, and some papers are paywalled.
+# Local reference material (papers and third party clones), not redistributed
 /papers/
 /third_party/
 
