@@ -6,7 +6,7 @@ How the project works, step by step and module by module. Commands are in [usage
 - [Conventions](#conventions)
 - [Configs](#configs)
 - [Validation and test sets](#validation-and-test-sets)
-- [Modules](#modules): [core](#core), [data](#data), [models](#models), [training](#training), [evaluation](#evaluation), [visualization](#visualization)
+- [Modules](#modules): [core](#core), [data](#data), [models](#models), [training](#training), [trackers](#trackers), [evaluation](#evaluation), [visualization](#visualization)
 - [Repository layout](#repository-layout)
 
 ## Status
@@ -30,7 +30,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.4 | Pilot training of PredNet 5 layers and the go/no-go decision: PredNet's own loss fails, a loss weighting the digit pixels passes the gate at 95% (see [Experiments, step 2.4](experiments.md#step-24-pilot-training-of-prednet-5-layers)) | done |
 | 2.5 | PredNet ablations: without explicit error units (concat mode), and 3, 4, and 5 layers at matched parameters | done |
 | 2.6 | ConvLSTM baseline (Shi et al., with peepholes) with the interface of PredNet, at matched parameters | done |
-| 2.7 to 2.10 | Trackers, probes, training sweep | planned |
+| 2.7 | Programmed baselines: digit detector, last seen position, constant velocity Kalman filters with and without walls, oracle | done |
+| 2.8 to 2.10 | Probes, training sweep | planned |
 | 3 | Evaluation, probes, figures | planned |
 
 ## Conventions
@@ -370,6 +371,39 @@ This is a deviation from PredNet, made necessary by the sparsity of the digit (s
 - `load_model(path, device)`: rebuilds a model from the settings stored in its checkpoint and loads its weights, in eval mode.
 - `load_checkpoint(path, model, optimizer, restore_rng)`: loads the weights into the model and optimizer when given, optionally restores the random states, and returns the whole checkpoint. The file holds only tensors and plain values and loads with `weights_only=True`, so loading never runs code. Tensors are read on the CPU and the model keeps its own device.
 
+### Trackers
+
+Programmed baselines in numpy, without learning. They give the reference for tracking through occlusion: a constant velocity Kalman filter is close to optimal on this synthetic motion, and the filter with walls is exact even through a hidden bounce. They read the same observed frames as the models.
+
+#### `peekaboo/trackers/detector.py`
+
+Finds the digit in each observed frame by its color: the digit is the only pure red element (some red, no green, no blue), the bar the only gray one (the same nonzero value on the three channels). A scene holds one digit and no noise, so every red pixel belongs to it and no connected component analysis is needed.
+
+- `detect(frames)` on a sequence (T, 3, H, W) uint8 returns `Detections`: per frame the intensity weighted centroid of the red ink (y, x), its extent from the centroid (up, down, left, right), and a status: **detected**, **no digit** (hidden, blacked out, or absent), or **at the bar**.
+- **A digit partly hidden is never detected** (critique C11): the centroid of its visible ink is biased toward the visible side, and a tracker fed with it would learn a wrong velocity just before the occlusion. Since the detector cannot tell a digit partly under the bar from one just next to it, red ink within `MARGIN` = 2 columns of the bar makes the digit "at the bar". A margin of 2 rather than 1 covers a digit whose edge column is empty, which would otherwise hide that the bar covers it. A detected digit is therefore fully visible, and its centroid equals the true centroid exactly.
+- `detect_frame(frame)`, `digit_mask(frame)`, and `bar_columns(frame)` are the steps.
+
+#### `peekaboo/trackers/kalman.py`
+
+A constant velocity Kalman filter on the state (y, x, vy, vx). Each frame, it predicts the position from the past frames, then corrects it with the detection when there is one, so while the digit is not detected it carries it at its last estimated velocity.
+
+- `KalmanSettings`: measurement noise 0.1 px (the detected centroid is exact), process noise of a random acceleration of 0.5 px/frame² (the velocity follows a bounce seen on screen within a few frames), a prior of 5 px/frame on the velocity at the first detection, and the `walls` option.
+- **Walls.** The generator mirrors the digit off the frame borders. With walls, the filter mirrors its prediction too, with the velocity and the covariance, inside the range of the centroid given by `wall_bounds(extent, frame_size)`: from the ink extent of a full detection, the centroid range for which the ink touches a border at either end, exactly the generator's range. The filter with walls then follows a bounce while hidden (the hidden bounce condition) and a vertical bounce under the bar.
+- `kalman_track(measurements, settings, bounds)` takes the detected centroids (T, 2), NaN where the digit is not detected, and returns a `Track`: `prediction`, the position at frame t predicted from frames before t (the counterpart of a model's prediction), and `estimate`, the position once frame t is seen.
+
+#### `peekaboo/trackers/baselines.py`
+
+`run_trackers(frames, center, state)` runs the four trackers of the project on one sequence, with the walls taken from the first full detection:
+
+| Tracker | Input | Motion model |
+| --- | --- | --- |
+| `last_seen` | detections | the last detected position, held |
+| `kalman` | detections | constant velocity |
+| `kalman_walls` | detections | constant velocity, mirrored off the walls |
+| `oracle` | the true centroid on every fully visible frame (state "visible") | constant velocity, mirrored off the walls |
+
+The oracle removes the detector's misses at the bar: it shows how well a tracker can do with perfect detection and the true motion model. `last_seen(measurements)` and `oracle_measurements(center, state)` are the pieces. The copy of the last frame, the pixel baseline, is in `peekaboo/eval/next_frame.py`.
+
 ### Evaluation
 
 #### `peekaboo/eval/next_frame.py`
@@ -450,6 +484,10 @@ peekaboo/           the package
   models/           video prediction models (build_model in __init__.py)
     prednet.py      PredNet and its ablations
     convlstm.py     ConvLSTM baseline
+  trackers/         programmed baselines
+    detector.py     digit detector
+    kalman.py       Kalman filters, with and without walls
+    baselines.py    last seen position, oracle, all trackers on a sequence
   eval/             evaluation
     next_frame.py   next frame scores, SSIM, gate D16
   train/            training
@@ -477,6 +515,7 @@ scripts/            command line entry points
   bench_prednet.py      training benchmark of a model (PredNet by default)
   train.py              training and resume
   eval_next_frame.py    next frame scores and gate D16
+  check_trackers.py     detector and tracker report on a stored set
   show_predictions.py   prediction figures of a saved model
   trial_pilots.py       record of the 2.4 trials
 configs/            one config file per experiment
