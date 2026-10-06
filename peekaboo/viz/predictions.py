@@ -5,13 +5,14 @@ Each frame t becomes a tile of three images:
   strip colored by state below it;
 - predicted: the model's prediction of frame t from frames 0 to t - 1, with a one pixel outline around the true
   digit, cyan next to hidden ink and white next to visible ink, and optionally a yellow cross where the position
-  probe reads the digit in the model's state;
+  probe reads the digit in the model's state and the digit read by the amodal decoder in magenta;
 - error: PredNet's pixel error units E_0, red where the frame is brighter than the prediction (something missed),
   blue where the prediction is brighter than the frame (something predicted that is not there).
 
 The prediction cannot show a hidden digit: behind the bar, the correct prediction of the next frame is the gray bar.
 What the model believes about the hidden digit lives in its internal states, and is read by the probes: the yellow
-cross (option B) shows the position a probe reads there, next to the true digit outlined in cyan.
+cross (option B) shows the position a probe reads there, and the magenta digit (option C) what the decoder reads
+there, next to the true digit outlined in cyan.
 """
 
 import numpy as np
@@ -24,6 +25,8 @@ from peekaboo.viz.frames import BLACK, GAP, LINE, STATE_RGB, STRIP, WHITE, font,
 
 CYAN = (0, 255, 255)
 YELLOW = (255, 220, 0)        # position read by the probe (option B)
+MAGENTA = (255, 0, 255)       # digit read by the amodal decoder (option C)
+MAGENTA_ALPHA = 0.8           # blend of the decoded intensity toward magenta
 ERROR_MISSED = (255, 40, 40)  # in the frame, not predicted
 ERROR_EXTRA = (60, 120, 255)  # predicted, not in the frame
 HIDDEN_ALPHA = 0.6            # how far hidden ink is blended toward cyan
@@ -31,12 +34,13 @@ ROW_NAMES = ("actual", "predicted", "error")
 LABEL_WIDTH = 64              # left column with the row names
 
 
-def legend(gain: float, probe: bool = False) -> tuple[str, str]:
+def legend(gain: float, probe: bool = False, decoder: bool = False) -> tuple[str, str]:
     """Two lines explaining the rows and colors."""
     return ("actual: frame t, hidden ink in cyan; strip: green visible, orange partial, red occluded, gray blackout, "
             "dark absent",
             "predicted: prediction of frame t from frames 0 to t-1, outline of the true digit (cyan where hidden)"
             + ("; yellow cross: position read by the probe in the model's state" if probe else "")
+            + ("; magenta: digit read by the decoder in the model's state" if decoder else "")
             + f"; error (x{gain:g}): red = in the frame but not predicted, blue = predicted but not in the frame")
 
 
@@ -84,11 +88,20 @@ def draw_cross(image: np.ndarray, center: np.ndarray, scale: int, color: tuple[i
         image[max(cy - reach, 0):min(cy + reach + 1, height), cx] = color
 
 
+def blend_magenta(image: np.ndarray, intensity: np.ndarray) -> np.ndarray:
+    """Blend an image (H, W, 3) uint8 toward magenta in proportion to an intensity (H, W) in [0, 1]."""
+    weight = MAGENTA_ALPHA * np.clip(np.nan_to_num(intensity), 0.0, 1.0)[..., None]
+    blended = (1.0 - weight) * image + weight * np.array(MAGENTA, dtype=np.float64)
+    return np.rint(blended).astype(np.uint8)
+
+
 def predicted_image(rendered: RenderedSequence, prediction: np.ndarray, t: int, scale: int,
-                    belief: np.ndarray | None = None) -> np.ndarray:
-    """Prediction of frame t, enlarged, with a one pixel outline just outside the true digit (inside is untouched),
-    and a yellow cross at belief[t] (y, x) when given."""
+                    belief: np.ndarray | None = None, imagined: np.ndarray | None = None) -> np.ndarray:
+    """Prediction of frame t, enlarged, with the decoded digit imagined[t] (H, W) in magenta when given, a one pixel
+    outline just outside the true digit (inside is untouched), and a yellow cross at belief[t] (y, x) when given."""
     image = upscale(to_uint8(prediction[t]), scale)
+    if imagined is not None:
+        image = blend_magenta(image, upscale(imagined[t], scale))
     ink = upscale(rendered.amodal[t] > 0, scale)
     outline = dilate(ink) & ~ink
     image[outline] = WHITE
@@ -114,14 +127,15 @@ def row_tops(rendered: RenderedSequence, scale: int) -> tuple[int, int, int]:
 
 
 def prediction_tile(rendered: RenderedSequence, prediction: np.ndarray, t: int, scale: int = 2,
-                    gain: float = 2.0, belief: np.ndarray | None = None) -> Image.Image:
+                    gain: float = 2.0, belief: np.ndarray | None = None,
+                    imagined: np.ndarray | None = None) -> Image.Image:
     """Frame t as three images stacked: actual with its state strip, predicted (with the probe's cross at belief[t]
-    when given), and error."""
+    and the decoded digit imagined[t] when given), and error."""
     width = rendered.spec.frame_width * scale
     gap = np.full((GAP, width, 3), 255, dtype=np.uint8)
     strip = np.full((STRIP, width, 3), STATE_RGB[int(rendered.truth.state[t])], dtype=np.uint8)
     parts = [upscale(actual_image(rendered, t), scale), strip, gap,
-             predicted_image(rendered, prediction, t, scale, belief),
+             predicted_image(rendered, prediction, t, scale, belief, imagined),
              gap, upscale(error_image(rendered, prediction, t, gain), scale)]
     return Image.fromarray(np.concatenate(parts, axis=0))
 
@@ -147,15 +161,15 @@ def text_width(lines: tuple[str, ...], size: int) -> int:
 
 
 def prediction_sheet(rendered: RenderedSequence, prediction: np.ndarray, times: list[int], title: str,
-                     scale: int = 2, columns: int = 10, gain: float = 2.0,
-                     belief: np.ndarray | None = None) -> Image.Image:
+                     scale: int = 2, columns: int = 10, gain: float = 2.0, belief: np.ndarray | None = None,
+                     imagined: np.ndarray | None = None) -> Image.Image:
     """Tiles of the given frames in a grid, with the row names on the left, frame numbers, a title, and a legend.
-    `belief` (T, 2), when given, adds the probe's yellow cross to the predicted row."""
-    tiles = [prediction_tile(rendered, prediction, t, scale, gain, belief) for t in times]
+    `belief` (T, 2) adds the probe's yellow cross and `imagined` (T, H, W) the decoded digit to the predicted row."""
+    tiles = [prediction_tile(rendered, prediction, t, scale, gain, belief, imagined) for t in times]
     tile_w, tile_h = tiles[0].size
     columns = min(columns, len(tiles))
     rows = -(-len(tiles) // columns)
-    lines = legend(gain, probe=belief is not None)
+    lines = legend(gain, probe=belief is not None, decoder=imagined is not None)
     header = 3 * LINE + GAP
     width = max(LABEL_WIDTH + columns * (tile_w + GAP), text_width((title,), 12) + 2 * GAP,
                 text_width(lines, 10) + 2 * GAP)
@@ -176,13 +190,17 @@ def prediction_sheet(rendered: RenderedSequence, prediction: np.ndarray, times: 
 
 def prediction_animation(renders: list[RenderedSequence], predictions: list[np.ndarray], labels: list[str],
                          times: list[int], scale: int = 2, gain: float = 2.0,
-                         beliefs: list[np.ndarray] | None = None) -> list[Image.Image]:
+                         beliefs: list[np.ndarray] | None = None,
+                         imagined: list[np.ndarray] | None = None) -> list[Image.Image]:
     """One image per frame in `times`, with the sequences side by side, each under its label and its current state.
-    `beliefs`, one (T, 2) array per sequence, adds the probe's yellow cross to the predicted rows."""
+    `beliefs` (one (T, 2) array per sequence) adds the probe's yellow cross and `imagined` (one (T, H, W) array per
+    sequence) the decoded digit to the predicted rows."""
     beliefs = beliefs if beliefs is not None else [None] * len(renders)
+    imagined = imagined if imagined is not None else [None] * len(renders)
     images = []
     for t in times:
-        tiles = [prediction_tile(r, p, t, scale, gain, b) for r, p, b in zip(renders, predictions, beliefs)]
+        tiles = [prediction_tile(r, p, t, scale, gain, b, m)
+                 for r, p, b, m in zip(renders, predictions, beliefs, imagined)]
         tile_w, tile_h = tiles[0].size
         top = 2 * LINE + GAP
         image = Image.new("RGB", (LABEL_WIDTH + len(tiles) * (tile_w + GAP), top + tile_h + GAP), WHITE)

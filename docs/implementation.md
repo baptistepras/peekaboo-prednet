@@ -32,7 +32,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.6 | ConvLSTM baseline (Shi et al., with peepholes) with the interface of PredNet, at matched parameters | done |
 | 2.7 | Programmed baselines: digit detector, last seen position, constant velocity Kalman filters with and without walls, oracle | done |
 | 2.8 | Position probe (option B): ridge and 8 bin logistic probes on the pooled states, random initialization control, trackers and bar center as baselines, yellow cross in the figures | done |
-| 2.9 to 2.10 | Amodal decoder, training sweep | planned |
+| 2.9 | Amodal decoder (option C): minimal 1 x 1 readout of the whole digit from the states, random initialization control, template baselines, magenta digit in the figures | done |
+| 2.10 | Training sweep | planned |
 | 3 | Evaluation, probes, figures | planned |
 
 ## Conventions
@@ -439,6 +440,16 @@ Evaluation on held out sequences, next to the controls of decision D15. Every fr
 
 `probe_positions`, `baseline_positions`, and `position_table` build the table, `add_errors` adds the absolute errors per axis and the distance, and `summarize_errors` averages them per group.
 
+#### `peekaboo/probes/amodal.py`
+
+The amodal decoder (option C): it reads from the states the whole digit, including the part under the bar, where the position probe reads only a point.
+
+- **A minimal readout** (`AmodalDecoder`): a 1 x 1 convolution of each layer's state R_l, upsampled bilinearly to the frame and summed, then a sigmoid. With a 1 x 1 kernel this is exactly one 1 x 1 convolution of all the layers upsampled and stacked: each decoded pixel is a weighted sum of the states at that place, with one weight per state channel (244 parameters for PredNet 5 layers, 257 for the ConvLSTM). It cannot draw a digit by itself: a shape appears only where the state holds one. `--kernel` allows larger kernels, at the cost of a decoder that can shape the digit itself.
+- **Training** (`fit_decoder`): Adam on the frozen model's states, on the analysis windows of the training stream, against the amodal frame (the digit as if there were no bar), with a binary cross entropy whose ink pixels weigh 10 (`decoder_loss`), as in the training loss (decision D12): the digit covers about 1% of the pixels.
+- **Scores** (`ink_scores`): per frame, the Pearson correlation of the decoded and true intensities, and the IoU of their ink (intensity above 0.5).
+- **Template baselines** (`template_images`): the last fully visible digit, copied and moved to the position predicted by a tracker. Moved by the constant velocity Kalman filter (`template_kalman`), it shows what memory of the shape plus constant motion gives; moved by the filter with walls (`template_walls`), it is exact on this synthetic data, the ceiling.
+- `evaluate_decoders(decoders, dataset, count, device)`: one row per frame from frame 2 on, with the correlation and IoU of each decoder (trained model and random initialization) and of both templates. Saved as `.npz` with `save` and `load`, plain arrays only.
+
 ### Evaluation
 
 #### `peekaboo/eval/next_frame.py`
@@ -480,15 +491,15 @@ Figures of a model's predictions next to the truth. The prediction of a frame ca
 | Row | Content |
 | --- | --- |
 | actual | the observed frame t, with every hidden ink pixel (under the bar or blacked out) blended toward cyan, and a strip colored by state below it |
-| predicted | the model's prediction of frame t from frames 0 to t - 1, with a one pixel outline just outside the true digit: cyan next to hidden ink, white next to visible ink; with a probe, a yellow cross where it reads the digit in the model's state |
+| predicted | the model's prediction of frame t from frames 0 to t - 1, with a one pixel outline just outside the true digit: cyan next to hidden ink, white next to visible ink; with the readouts, a yellow cross where the probe reads the digit in the model's state and the digit the decoder reads there in magenta |
 | error | PredNet's pixel error units E_0, brightened by a gain: red where the frame is brighter than the prediction (something missed), blue where the prediction is brighter (something predicted that is not there) |
 
-The colors follow one convention in every figure of the project: red is ink on screen, cyan is the hidden truth, yellow is the position a probe reads from the model, and later magenta will be the digit a decoder reads from it. The truth (cyan outline) and the belief (yellow cross) can be compared directly.
+The colors follow one convention in every figure of the project: red is ink on screen, cyan is the hidden truth, yellow is the position a probe reads from the model, and magenta the digit the decoder reads from it. The truth (cyan outline) and the beliefs (yellow cross, magenta digit) can be compared directly.
 
 - `actual_image`, `predicted_image`, `error_image`: the three rows of one frame, as pixel arrays.
 - `prediction_tile(rendered, prediction, t, scale, gain)`: the three rows stacked.
-- `prediction_sheet(rendered, prediction, times, title, scale, columns, gain, belief)`: the tiles of the chosen frames in a grid, with row names, frame numbers, a title, and a legend. `belief` (T, 2), the probe's positions, adds the yellow cross (`draw_cross`).
-- `prediction_animation(renders, predictions, labels, times, scale, gain, beliefs)`: one image per frame with several sequences side by side, for `save_gif`.
+- `prediction_sheet(rendered, prediction, times, title, scale, columns, gain, belief, imagined)`: the tiles of the chosen frames in a grid, with row names, frame numbers, a title, and a legend. `belief` (T, 2), the probe's positions, adds the yellow cross (`draw_cross`); `imagined` (T, H, W), the decoded digit, blends the prediction toward magenta (`blend_magenta`).
+- `prediction_animation(renders, predictions, labels, times, scale, gain, beliefs, imagined)`: one image per frame with several sequences side by side, for `save_gif`.
 - `frames_around_event(spec)`: the frames from 3 before the digit touches the bar to 4 after it leaves (frame 0 is left out, since its prediction comes before any input).
 
 #### `peekaboo/viz/curves.py`
@@ -527,6 +538,7 @@ peekaboo/           the package
     features.py     pooled states, one vector per frame
     position.py     ridge and bin probes of the position
     evaluate.py     probes next to their controls
+    amodal.py       amodal decoder, templates, scores
   eval/             evaluation
     next_frame.py   next frame scores, SSIM, gate D16
   train/            training
@@ -556,6 +568,7 @@ scripts/            command line entry points
   eval_next_frame.py    next frame scores and gate D16
   check_trackers.py     detector and tracker report on a stored set
   fit_probes.py         position probes of a run, with their controls
+  fit_decoder.py        amodal decoder of a run, with its controls
   show_predictions.py   prediction figures of a saved model
   trial_pilots.py       record of the 2.4 trials
 configs/            one config file per experiment

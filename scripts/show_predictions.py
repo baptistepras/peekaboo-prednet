@@ -3,7 +3,8 @@
 Loads the checkpoint of a run, predicts every frame of a few sequences of a stored set, and saves in
 <run>/predictions/ one sheet per sequence (<condition>_<index>.png) and a GIF with the sequences side by side.
 With --probe, a yellow cross marks the position read in the model's state by the probe fitted with
-scripts/fit_probes.py. Nothing is trained: the figures can be redrawn at any time from the saved model.
+scripts/fit_probes.py; with --decoder, the digit read there by the amodal decoder of scripts/fit_decoder.py is drawn
+in magenta. Nothing is trained: the figures can be redrawn at any time from the saved model.
 """
 
 import argparse
@@ -20,6 +21,7 @@ from peekaboo.data.store import StoredDataset
 from peekaboo.device import describe_device, get_device
 from peekaboo.eval.next_frame import MIN_CONTEXT
 from peekaboo.paths import DATASETS_DIR
+from peekaboo.probes.amodal import AmodalDecoder, select_states
 from peekaboo.probes.features import frame_features
 from peekaboo.probes.position import PositionProbe
 from peekaboo.train.checkpoint import find_checkpoint, load_model
@@ -49,9 +51,11 @@ def main() -> int:
     parser.add_argument("--fps", type=float, default=4.0)
     parser.add_argument("--probe", action="store_true",
                         help="draw the position read by the probe <run>/probes/position_model.npz (yellow cross)")
+    parser.add_argument("--decoder", action="store_true",
+                        help="draw the digit read by the decoder <run>/probes/amodal_model.npz (magenta)")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--out", type=Path, default=None,
-                        help="default: <run>/predictions, or <run>/predictions_probe with --probe")
+                        help="default: <run>/predictions, or <run>/predictions_probe with --probe or --decoder")
     args = parser.parse_args()
 
     device = get_device(args.device)
@@ -72,7 +76,7 @@ def main() -> int:
 
     batch = prepare_batch(torch.utils.data.default_collate([dataset[i] for i in picks]), device)
     with torch.no_grad():
-        result = model(batch["frames"], return_states=args.probe)
+        result = model(batch["frames"], return_states=args.probe or args.decoder)
     frames = batch["frames"].permute(0, 1, 3, 4, 2).cpu().numpy()
     predictions = result["prediction"].permute(0, 1, 3, 4, 2).cpu().numpy()
     beliefs = [None] * len(picks)
@@ -81,9 +85,19 @@ def main() -> int:
         features = frame_features(result["R"], probe.layer_limit).cpu().numpy()
         beliefs = probe.predict(features.reshape(-1, features.shape[2])).reshape(len(picks), -1, 2)
         beliefs[:, :MIN_CONTEXT] = np.nan  # the probe reads frames from MIN_CONTEXT on
+    imagined = [None] * len(picks)
+    if args.decoder:
+        decoder = AmodalDecoder.load(args.run / "probes" / "amodal_model.npz").to(device)
+        size, length = batch["frames"].shape[:2]
+        seq_index, t_index = torch.meshgrid(torch.arange(size), torch.arange(length), indexing="ij")
+        with torch.no_grad():
+            image = decoder.imagine(select_states(result["R"], seq_index.flatten().to(device),
+                                                  t_index.flatten().to(device)))
+        imagined = image.reshape(size, length, *image.shape[1:]).cpu().numpy()
+        imagined[:, :MIN_CONTEXT] = 0.0  # the decoder reads frames from MIN_CONTEXT on
 
     thresholds = VisibilityThresholds(**dataset.info["thresholds"])
-    out = args.out or args.run / ("predictions_probe" if args.probe else "predictions")
+    out = args.out or args.run / ("predictions_probe" if args.probe or args.decoder else "predictions")
     out.mkdir(parents=True, exist_ok=True)
     renders, labels, saved = [], [], []
     for i, index in enumerate(picks):
@@ -99,13 +113,13 @@ def main() -> int:
         times = frames_around_event(spec) if args.frames == "event" else list(range(1, spec.seq_len))
         path = out / f"{spec.condition}_{index:05d}.png"
         prediction_sheet(rendered, predictions[i], times[::args.step], title, args.scale, args.columns,
-                         args.gain, beliefs[i]).save(path)
+                         args.gain, beliefs[i], imagined[i]).save(path)
         saved.append(path)
         labels.append(f"#{index} {spec.condition} k={spec.k_target} v={spec.speed}")
 
     gif = out / f"{args.condition}.gif"
     images = prediction_animation(renders, list(predictions), labels, list(range(1, renders[0].spec.seq_len)),
-                                  args.scale, args.gain, list(beliefs))
+                                  args.scale, args.gain, list(beliefs), list(imagined))
     saved.append(save_gif(images, gif, args.fps))
     print(f"saved {len(saved)} files in {out}:")
     for path in saved:
