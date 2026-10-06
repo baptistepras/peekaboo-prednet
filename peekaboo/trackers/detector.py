@@ -6,16 +6,23 @@ so all red pixels belong to the digit and no connected component analysis is nee
 
 A digit partly hidden by the bar is reported as missing, not detected (critique C11): the centroid of its visible ink
 is biased toward the visible side, and a tracker fed with it would learn a wrong velocity just before the occlusion.
-The detector cannot tell a digit partly under the bar from one just next to it, so any red pixel within `margin`
-columns of the bar makes the digit missing. A digit that is detected is fully visible, and its centroid is exact.
+Two rules catch a partial view:
+- at the bar: red ink within `margin` columns of the bar. The detector cannot tell a digit partly under the bar from
+  one just next to it, so both are missing;
+- narrower: the ink is narrower than the widest digit seen earlier in the sequence. Some digits have a fragment
+  separated from the rest by empty columns; when the bar hides only that fragment, the visible ink can be far from
+  the bar, but the digit is narrower than when it was seen whole. The digit's width never changes, so a narrower
+  digit is always partly hidden.
+A detected digit is therefore fully visible, and its centroid is exact, once the whole digit has been seen in the
+sequence.
 """
 
 from dataclasses import dataclass
 
 import numpy as np
 
-DETECTED, NO_DIGIT, AT_BAR = 0, 1, 2
-STATUS_NAMES = ("detected", "no digit", "at the bar")
+DETECTED, NO_DIGIT, AT_BAR, NARROWER = 0, 1, 2, 3
+STATUS_NAMES = ("detected", "no digit", "at the bar", "narrower")
 MARGIN = 2  # columns: an empty column at the edge of a digit must not hide that the bar covers it
 
 
@@ -25,7 +32,7 @@ class Detections:
 
     center: np.ndarray  # (T, 2) intensity weighted centroid of the red ink
     extent: np.ndarray  # (T, 4) distances from the centroid to the ink edges: up, down, left, right
-    status: np.ndarray  # (T,) DETECTED, NO_DIGIT, or AT_BAR
+    status: np.ndarray  # (T,) DETECTED, NO_DIGIT, AT_BAR, or NARROWER
 
     @property
     def detected(self) -> np.ndarray:
@@ -64,7 +71,18 @@ def detect_frame(frame: np.ndarray, margin: int = MARGIN) -> tuple[np.ndarray, n
 
 
 def detect(frames: np.ndarray, margin: int = MARGIN) -> Detections:
-    """Detect the digit in every frame of a sequence (T, 3, H, W) uint8."""
-    found = [detect_frame(frame, margin) for frame in frames]
-    return Detections(center=np.stack([f[0] for f in found]), extent=np.stack([f[1] for f in found]),
-                      status=np.array([f[2] for f in found], dtype=np.int8))
+    """Detect the digit in every frame of a sequence (T, 3, H, W) uint8. A digit narrower than the widest one detected
+    in an earlier frame is partly hidden, and is reported as NARROWER instead of detected."""
+    centers, extents, statuses = [], [], []
+    widest = 0
+    for frame in frames:
+        center, extent, status = detect_frame(frame, margin)
+        if status == DETECTED:
+            width = round(extent[2] + extent[3])  # columns from the first to the last ink column, exact once rounded
+            if width < widest:
+                center, extent, status = np.full(2, np.nan), np.full(4, np.nan), NARROWER
+            widest = max(widest, width)
+        centers.append(center)
+        extents.append(extent)
+        statuses.append(status)
+    return Detections(center=np.stack(centers), extent=np.stack(extents), status=np.array(statuses, dtype=np.int8))

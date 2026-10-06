@@ -1,10 +1,12 @@
 """Check the programmed baselines on a stored set: the detector against the exact ground truth, then the error of
 every tracker while the digit is hidden and when it reappears.
 
-Prints, per visibility state, how often the digit is detected, reported at the bar, or reported absent, and the largest
-centroid error of a detection (0 up to rounding: a detected digit is fully visible). Then, per condition, the mean
-distance in pixels between each tracker's prediction and the true centroid on the visible frames of the analysis
-window, on the hidden frames of the main event, and at the reappearance frame. Saves figures/trackers.png: the mean
+Prints, per visibility state, how often the digit is detected, reported at the bar, reported narrower than before (a
+fragment hidden), or reported absent, and the largest centroid error of a detection (0 up to rounding: a detected
+digit is fully visible). Then, per condition, the mean distance in pixels between each tracker's prediction and the
+true centroid on the visible frames of the analysis window, on the hidden frames of the main event, and at the
+reappearance frame. Frames 0 and 1 are left out, as in the next frame evaluation: a tracker that has seen one frame
+cannot know the velocity yet. Saves figures/trackers.png: the mean
 error against the frames since the onset of the occlusion, per tracker, for occlusion and hidden bounce sequences.
 """
 
@@ -19,6 +21,7 @@ from matplotlib.figure import Figure
 from peekaboo.data.dataset import CONDITION_NAMES
 from peekaboo.data.store import StoredDataset
 from peekaboo.data.truth import EPISODE_MAIN, STATE_NAMES
+from peekaboo.eval.next_frame import MIN_CONTEXT
 from peekaboo.paths import DATASETS_DIR, FIGURES_DIR
 from peekaboo.trackers.baselines import TRACKER_NAMES, run_trackers
 from peekaboo.trackers.detector import STATUS_NAMES, detect
@@ -54,7 +57,7 @@ def main() -> int:
         for name, track in run_trackers(frames, center, state).items():
             error = np.linalg.norm(track.prediction - center, axis=1)
             for t in range(len(frames)):
-                if not window[t]:
+                if not window[t] or t < MIN_CONTEXT:
                     continue
                 phase = ("visible" if STATE_NAMES[state[t]] == "visible" else
                          "hidden" if STATE_NAMES[state[t]] in ("occluded", "blackout") and main_event[t] else None)

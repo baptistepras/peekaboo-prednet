@@ -11,7 +11,7 @@ from peekaboo.data.trajectory import Bounds
 from peekaboo.data.truth import STATE_NAMES
 from peekaboo.paths import CONFIGS_DIR
 from peekaboo.trackers.baselines import last_seen, oracle_measurements, run_trackers
-from peekaboo.trackers.detector import AT_BAR, DETECTED, NO_DIGIT, detect
+from peekaboo.trackers.detector import AT_BAR, DETECTED, NARROWER, NO_DIGIT, detect, detect_frame
 from peekaboo.trackers.kalman import KalmanSettings, kalman_track, reflect, wall_bounds
 
 RENDER = RenderSettings.from_config(load_config(CONFIGS_DIR / "data" / "base.yaml"))
@@ -44,10 +44,22 @@ def test_detector_is_exact_and_never_reports_a_partial_view(condition: str, pool
         hit = found.status == DETECTED
         assert np.all(fraction[hit] == 1.0)
         assert np.allclose(found.center[hit], r.truth.center[hit], atol=1e-9)
-        assert np.all(found.status[(fraction > 0) & (fraction < 1)] == AT_BAR)
+        assert np.all(np.isin(found.status[(fraction > 0) & (fraction < 1)], (AT_BAR, NARROWER)))
         assert np.all(found.status[fraction == 0] == NO_DIGIT)
         full, detected = full + int((fraction == 1).sum()), detected + int(hit.sum())
     assert detected > 0.8 * full
+
+
+def test_a_hidden_fragment_far_from_the_bar_is_caught() -> None:
+    """A digit whose right fragment, 3 empty columns away from the rest, is under the bar has its visible ink far from
+    the bar: one frame alone looks like a full detection, but the digit is narrower than before, so it is missing."""
+    frames = np.zeros((2, 3, 8, 40), dtype=np.uint8)
+    for t, shift in enumerate((0, 12)):
+        frames[t, 0, 2:6, 2 + shift:5 + shift] = 200  # main part, columns 2 to 4
+        frames[t, 0, 3:5, 8 + shift:10 + shift] = 200  # fragment, columns 8 and 9
+    frames[:, :, :, 20:26] = 128  # the bar, drawn on top: it hides the fragment of frame 1
+    assert detect_frame(frames[1])[2] == DETECTED
+    assert detect(frames).status.tolist() == [DETECTED, NARROWER]
 
 
 def test_wall_bounds_are_the_generator_range(pool: DigitPool, settings: GeneratorSettings) -> None:
@@ -65,16 +77,18 @@ def test_wall_bounds_are_the_generator_range(pool: DigitPool, settings: Generato
 
 
 def test_kalman_crosses_an_occlusion_at_constant_velocity(pool: DigitPool, settings: GeneratorSettings) -> None:
-    """When the digit keeps its velocity from the first frame to its reappearance, the constant velocity filter
-    predicts it exactly while it is hidden and when it comes back."""
+    """When the digit keeps its velocity from the start of the analysis window to its reappearance, the constant
+    velocity filter fed from the start of the window predicts it exactly while it is hidden and when it comes back."""
     checked = 0
-    for index in range(20):
+    for index in range(30):
         r, frames = rendered(pool, settings, "occlusion", index, k=8)
         spec = r.spec
-        end = spec.actual_reappear_frame
-        if not np.all(spec.velocities[:end] == spec.velocities[0]):
-            continue  # a wall bounce, seen or hidden, breaks constant velocity
-        track = kalman_track(detect(frames).center)
+        start, end = spec.window_start, spec.actual_reappear_frame
+        if not np.all(spec.velocities[start:end] == spec.velocities[start]):
+            continue  # a wall bounce in the window, seen or hidden, breaks constant velocity
+        measurements = detect(frames).center
+        measurements[:start] = np.nan  # earlier wall bounces would take a few frames to forget
+        track = kalman_track(measurements)
         hidden = np.arange(spec.entry_frame, end + 1)
         assert error(track.prediction[hidden], r.truth.center[hidden]).max() < TOLERANCE
         checked += 1
