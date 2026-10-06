@@ -45,6 +45,8 @@ With its own loss, PredNet learns the bar and the background perfectly but never
 
 **The hidden digit stays in the model's state.** A linear probe reads the digit's position in PredNet's internal states. On fully hidden frames of the validation set, it finds the vertical position within **0.6 px**, as precisely as when the digit is visible (0.7 px), and the error does not grow over 15 hidden frames, even through a bounce off a wall while hidden. The same probe on an untrained PredNet is about 10 px off, no better than the last seen position.
 
+A minimal decoder (one weight per state channel) also reads the hidden digit itself from the states: a blurred but well placed digit under the bar (correlation 0.74 with the true hidden digit, against 0.88 when visible and 0.16 for an untrained PredNet), which follows the digit through a hidden bounce.
+
 The full analysis is in [docs/experiments.md](docs/experiments.md).
 
 ## Status
