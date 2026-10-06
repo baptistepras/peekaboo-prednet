@@ -90,9 +90,10 @@ def main() -> int:
         rows = trackers[(trackers["condition"] == condition) & trackers["since_onset"].isin(list(SINCE_ONSET))]
         for name in TRACKER_NAMES:
             curve = rows[rows["tracker"] == name].groupby("since_onset")["error"].mean()
-            ax.plot(curve.index, curve.values, "o-", ms=3, label=name)
+            ax.plot(curve.index, curve.values, "o-" if name != "oracle" else "x--", ms=3, label=name)
         ax.axvline(0, color="0.6", lw=0.8)
         ax.set_yscale("symlog", linthresh=0.1)
+        ax.set_ylim(bottom=0)  # errors are distances: no negative half
         ax.set_xlabel("frames since the onset of the occlusion")
         ax.set_ylabel("mean prediction error (px)")
         ax.set_title(condition.replace("_", " "), fontsize=9)

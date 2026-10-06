@@ -4,12 +4,14 @@ Each frame t becomes a tile of three images:
 - actual: the observed frame t, with the hidden ink of the digit blended toward cyan (from the amodal frame), and a
   strip colored by state below it;
 - predicted: the model's prediction of frame t from frames 0 to t - 1, with a one pixel outline around the true
-  digit, cyan next to hidden ink and white next to visible ink;
+  digit, cyan next to hidden ink and white next to visible ink, and optionally a yellow cross where the position
+  probe reads the digit in the model's state;
 - error: PredNet's pixel error units E_0, red where the frame is brighter than the prediction (something missed),
   blue where the prediction is brighter than the frame (something predicted that is not there).
 
 The prediction cannot show a hidden digit: behind the bar, the correct prediction of the next frame is the gray bar.
-What the model believes about the hidden digit lives in its internal states, and is read by the probes of later steps.
+What the model believes about the hidden digit lives in its internal states, and is read by the probes: the yellow
+cross (option B) shows the position a probe reads there, next to the true digit outlined in cyan.
 """
 
 import numpy as np
@@ -21,6 +23,7 @@ from peekaboo.data.truth import STATE_NAMES
 from peekaboo.viz.frames import BLACK, GAP, LINE, STATE_RGB, STRIP, WHITE, font, upscale
 
 CYAN = (0, 255, 255)
+YELLOW = (255, 220, 0)        # position read by the probe (option B)
 ERROR_MISSED = (255, 40, 40)  # in the frame, not predicted
 ERROR_EXTRA = (60, 120, 255)  # predicted, not in the frame
 HIDDEN_ALPHA = 0.6            # how far hidden ink is blended toward cyan
@@ -28,12 +31,13 @@ ROW_NAMES = ("actual", "predicted", "error")
 LABEL_WIDTH = 64              # left column with the row names
 
 
-def legend(gain: float) -> tuple[str, str]:
+def legend(gain: float, probe: bool = False) -> tuple[str, str]:
     """Two lines explaining the rows and colors."""
     return ("actual: frame t, hidden ink in cyan; strip: green visible, orange partial, red occluded, gray blackout, "
             "dark absent",
-            "predicted: prediction of frame t from frames 0 to t-1, outline of the true digit (cyan where hidden); "
-            f"error (x{gain:g}): red = in the frame but not predicted, blue = predicted but not in the frame")
+            "predicted: prediction of frame t from frames 0 to t-1, outline of the true digit (cyan where hidden)"
+            + ("; yellow cross: position read by the probe in the model's state" if probe else "")
+            + f"; error (x{gain:g}): red = in the frame but not predicted, blue = predicted but not in the frame")
 
 
 def to_uint8(image: np.ndarray) -> np.ndarray:
@@ -66,13 +70,31 @@ def actual_image(rendered: RenderedSequence, t: int, alpha: float = HIDDEN_ALPHA
     return np.rint(image).astype(np.uint8)
 
 
-def predicted_image(rendered: RenderedSequence, prediction: np.ndarray, t: int, scale: int) -> np.ndarray:
-    """Prediction of frame t, enlarged, with a one pixel outline just outside the true digit (inside is untouched)."""
+def draw_cross(image: np.ndarray, center: np.ndarray, scale: int, color: tuple[int, int, int] = YELLOW,
+               arm: int = 3) -> None:
+    """Draw a cross in place on an enlarged image, centered on a position (y, x) in frame pixels; nothing if NaN."""
+    if np.isnan(center).any():
+        return
+    cy, cx = (int(round(v * scale + (scale - 1) / 2)) for v in center)
+    height, width = image.shape[:2]
+    reach = arm * scale
+    if 0 <= cy < height:
+        image[cy, max(cx - reach, 0):min(cx + reach + 1, width)] = color
+    if 0 <= cx < width:
+        image[max(cy - reach, 0):min(cy + reach + 1, height), cx] = color
+
+
+def predicted_image(rendered: RenderedSequence, prediction: np.ndarray, t: int, scale: int,
+                    belief: np.ndarray | None = None) -> np.ndarray:
+    """Prediction of frame t, enlarged, with a one pixel outline just outside the true digit (inside is untouched),
+    and a yellow cross at belief[t] (y, x) when given."""
     image = upscale(to_uint8(prediction[t]), scale)
     ink = upscale(rendered.amodal[t] > 0, scale)
     outline = dilate(ink) & ~ink
     image[outline] = WHITE
     image[outline & dilate(upscale(hidden_ink(rendered, t), scale))] = CYAN
+    if belief is not None:
+        draw_cross(image, belief[t], scale)
     return image
 
 
@@ -92,12 +114,14 @@ def row_tops(rendered: RenderedSequence, scale: int) -> tuple[int, int, int]:
 
 
 def prediction_tile(rendered: RenderedSequence, prediction: np.ndarray, t: int, scale: int = 2,
-                    gain: float = 2.0) -> Image.Image:
-    """Frame t as three images stacked: actual with its state strip, predicted, and error."""
+                    gain: float = 2.0, belief: np.ndarray | None = None) -> Image.Image:
+    """Frame t as three images stacked: actual with its state strip, predicted (with the probe's cross at belief[t]
+    when given), and error."""
     width = rendered.spec.frame_width * scale
     gap = np.full((GAP, width, 3), 255, dtype=np.uint8)
     strip = np.full((STRIP, width, 3), STATE_RGB[int(rendered.truth.state[t])], dtype=np.uint8)
-    parts = [upscale(actual_image(rendered, t), scale), strip, gap, predicted_image(rendered, prediction, t, scale),
+    parts = [upscale(actual_image(rendered, t), scale), strip, gap,
+             predicted_image(rendered, prediction, t, scale, belief),
              gap, upscale(error_image(rendered, prediction, t, gain), scale)]
     return Image.fromarray(np.concatenate(parts, axis=0))
 
@@ -123,13 +147,15 @@ def text_width(lines: tuple[str, ...], size: int) -> int:
 
 
 def prediction_sheet(rendered: RenderedSequence, prediction: np.ndarray, times: list[int], title: str,
-                     scale: int = 2, columns: int = 10, gain: float = 2.0) -> Image.Image:
-    """Tiles of the given frames in a grid, with the row names on the left, frame numbers, a title, and a legend."""
-    tiles = [prediction_tile(rendered, prediction, t, scale, gain) for t in times]
+                     scale: int = 2, columns: int = 10, gain: float = 2.0,
+                     belief: np.ndarray | None = None) -> Image.Image:
+    """Tiles of the given frames in a grid, with the row names on the left, frame numbers, a title, and a legend.
+    `belief` (T, 2), when given, adds the probe's yellow cross to the predicted row."""
+    tiles = [prediction_tile(rendered, prediction, t, scale, gain, belief) for t in times]
     tile_w, tile_h = tiles[0].size
     columns = min(columns, len(tiles))
     rows = -(-len(tiles) // columns)
-    lines = legend(gain)
+    lines = legend(gain, probe=belief is not None)
     header = 3 * LINE + GAP
     width = max(LABEL_WIDTH + columns * (tile_w + GAP), text_width((title,), 12) + 2 * GAP,
                 text_width(lines, 10) + 2 * GAP)
@@ -149,11 +175,14 @@ def prediction_sheet(rendered: RenderedSequence, prediction: np.ndarray, times: 
 
 
 def prediction_animation(renders: list[RenderedSequence], predictions: list[np.ndarray], labels: list[str],
-                         times: list[int], scale: int = 2, gain: float = 2.0) -> list[Image.Image]:
-    """One image per frame in `times`, with the sequences side by side, each under its label and its current state."""
+                         times: list[int], scale: int = 2, gain: float = 2.0,
+                         beliefs: list[np.ndarray] | None = None) -> list[Image.Image]:
+    """One image per frame in `times`, with the sequences side by side, each under its label and its current state.
+    `beliefs`, one (T, 2) array per sequence, adds the probe's yellow cross to the predicted rows."""
+    beliefs = beliefs if beliefs is not None else [None] * len(renders)
     images = []
     for t in times:
-        tiles = [prediction_tile(r, p, t, scale, gain) for r, p in zip(renders, predictions)]
+        tiles = [prediction_tile(r, p, t, scale, gain, b) for r, p, b in zip(renders, predictions, beliefs)]
         tile_w, tile_h = tiles[0].size
         top = 2 * LINE + GAP
         image = Image.new("RGB", (LABEL_WIDTH + len(tiles) * (tile_w + GAP), top + tile_h + GAP), WHITE)

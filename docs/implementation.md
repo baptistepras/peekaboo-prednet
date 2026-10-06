@@ -6,7 +6,7 @@ How the project works, step by step and module by module. Commands are in [usage
 - [Conventions](#conventions)
 - [Configs](#configs)
 - [Validation and test sets](#validation-and-test-sets)
-- [Modules](#modules): [core](#core), [data](#data), [models](#models), [training](#training), [trackers](#trackers), [evaluation](#evaluation), [visualization](#visualization)
+- [Modules](#modules): [core](#core), [data](#data), [models](#models), [training](#training), [trackers](#trackers), [probes](#probes), [evaluation](#evaluation), [visualization](#visualization)
 - [Repository layout](#repository-layout)
 
 ## Status
@@ -31,7 +31,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.5 | PredNet ablations: without explicit error units (concat mode), and 3, 4, and 5 layers at matched parameters | done |
 | 2.6 | ConvLSTM baseline (Shi et al., with peepholes) with the interface of PredNet, at matched parameters | done |
 | 2.7 | Programmed baselines: digit detector, last seen position, constant velocity Kalman filters with and without walls, oracle | done |
-| 2.8 to 2.10 | Probes, training sweep | planned |
+| 2.8 | Position probe (option B): ridge and 8 bin logistic probes on the pooled states, random initialization control, trackers and bar center as baselines, yellow cross in the figures | done |
+| 2.9 to 2.10 | Amodal decoder, training sweep | planned |
 | 3 | Evaluation, probes, figures | planned |
 
 ## Conventions
@@ -408,6 +409,36 @@ A constant velocity Kalman filter on the state (y, x, vy, vx). Each frame, it pr
 
 The oracle removes the detector's misses at the bar: it shows how well a tracker can do with perfect detection and the true motion model. `last_seen(measurements)` and `oracle_measurements(center, state)` are the pieces. The copy of the last frame, the pixel baseline, is in `peekaboo/eval/next_frame.py`.
 
+### Probes
+
+What the model believes about a hidden digit cannot be seen in its predicted frames: behind the bar, the correct prediction is the gray bar. It lives in the internal states R, and is read there by probes fitted on the frozen model. A probe is a deliberately simple readout (linear here): if it finds the position, the state encodes it in an accessible form.
+
+#### `peekaboo/probes/features.py`
+
+- `frame_features(states, limit)`: one vector per frame from the states returned with `return_states`. R[t] is the state that makes the prediction of frame t, so it has seen frames 0 to t - 1. Each layer is average pooled over space by the smallest power of 2 that leaves at most `limit` values (`pool_layer`, 2048 by default), and the layers are concatenated: 5,760 features per frame for PredNet 5 layers (layers pooled to 16 x 24, 8 x 12, 4 x 6, 4 x 6, and 2 x 3), 6,144 for the ConvLSTM. The pooled maps keep a coarse spatial layout, from which a linear probe can read a position. This keeps about 20k frames under 0.5 GB (plan verdict 9).
+- `iterate_frames(model, dataset, count, device, ...)` runs the frozen model over sequences and yields, per batch, the features and one row per selected frame (sequence, frame, true centroid, state, episode, window, condition, k, speed, frames since the onset). Selected frames: from frame 2 on (`MIN_CONTEXT`, as in the next frame evaluation), with the digit present, and only inside the analysis window with `window_only`. `collect_frames` gathers them in a `FrameSet`.
+
+#### `peekaboo/probes/position.py`
+
+Two probes per model (decision D15), on standardized features:
+
+- **Ridge regression** of the centroid (y, x). **y is the main axis** while the digit is hidden (critique C4): the bar spans the full height, so a hidden digit's x is bounded by the bar and partly known from the bar alone, while its y keeps changing behind it. `fit_ridge` solves every penalty at once from one eigendecomposition and keeps the one with the lowest error on held out frames.
+- **Logistic regression on 8 position bins per axis** (8 px bins in y, 12 px in x): a probability for each bin, so the probe's uncertainty can be read. The mean probability of the true bin is reported (0.125 is chance).
+- `fit_position_probe(features, positions, sequences, frame_size, layer_limit)` holds out 20% of the training sequences, whole, to choose both penalties (ridge alpha from 0.1 to 1e5, logistic C from 0.001 to 1), and returns a `PositionProbe` with `predict(features)` and `bin_probabilities(features)`. It is saved as plain arrays (`.npz`, no pickle) with the pooling limit it reads.
+
+#### `peekaboo/probes/evaluate.py`
+
+Evaluation on held out sequences, next to the controls of decision D15. Every frame from frame 2 on gets the position believed at frame t from frames before t by each method:
+
+| Method | What it is |
+| --- | --- |
+| `probe` | the probe of the trained model |
+| `random_probe` | the same probe fitted on the same architecture at random initialization: what is readable without any training |
+| `last_seen`, `kalman`, `kalman_walls` | the programmed trackers of `peekaboo/trackers/` |
+| `bar_center` | x only: the center of the bar, what a hidden digit's x is known to be close to without any memory |
+
+`probe_positions`, `baseline_positions`, and `position_table` build the table, `add_errors` adds the absolute errors per axis and the distance, and `summarize_errors` averages them per group.
+
 ### Evaluation
 
 #### `peekaboo/eval/next_frame.py`
@@ -449,15 +480,15 @@ Figures of a model's predictions next to the truth. The prediction of a frame ca
 | Row | Content |
 | --- | --- |
 | actual | the observed frame t, with every hidden ink pixel (under the bar or blacked out) blended toward cyan, and a strip colored by state below it |
-| predicted | the model's prediction of frame t from frames 0 to t - 1, with a one pixel outline just outside the true digit: cyan next to hidden ink, white next to visible ink |
+| predicted | the model's prediction of frame t from frames 0 to t - 1, with a one pixel outline just outside the true digit: cyan next to hidden ink, white next to visible ink; with a probe, a yellow cross where it reads the digit in the model's state |
 | error | PredNet's pixel error units E_0, brightened by a gain: red where the frame is brighter than the prediction (something missed), blue where the prediction is brighter (something predicted that is not there) |
 
-The colors follow one convention in every figure of the project: red is ink on screen, cyan is the hidden truth, and later yellow will be the position a probe reads from the model and magenta the digit a decoder reads from it.
+The colors follow one convention in every figure of the project: red is ink on screen, cyan is the hidden truth, yellow is the position a probe reads from the model, and later magenta will be the digit a decoder reads from it. The truth (cyan outline) and the belief (yellow cross) can be compared directly.
 
 - `actual_image`, `predicted_image`, `error_image`: the three rows of one frame, as pixel arrays.
 - `prediction_tile(rendered, prediction, t, scale, gain)`: the three rows stacked.
-- `prediction_sheet(rendered, prediction, times, title, scale, columns, gain)`: the tiles of the chosen frames in a grid, with row names, frame numbers, a title, and a legend.
-- `prediction_animation(renders, predictions, labels, times, scale, gain)`: one image per frame with several sequences side by side, for `save_gif`.
+- `prediction_sheet(rendered, prediction, times, title, scale, columns, gain, belief)`: the tiles of the chosen frames in a grid, with row names, frame numbers, a title, and a legend. `belief` (T, 2), the probe's positions, adds the yellow cross (`draw_cross`).
+- `prediction_animation(renders, predictions, labels, times, scale, gain, beliefs)`: one image per frame with several sequences side by side, for `save_gif`.
 - `frames_around_event(spec)`: the frames from 3 before the digit touches the bar to 4 after it leaves (frame 0 is left out, since its prediction comes before any input).
 
 #### `peekaboo/viz/curves.py`
@@ -492,6 +523,10 @@ peekaboo/           the package
     detector.py     digit detector
     kalman.py       Kalman filters, with and without walls
     baselines.py    last seen position, oracle, all trackers on a sequence
+  probes/           readouts of the model's state
+    features.py     pooled states, one vector per frame
+    position.py     ridge and bin probes of the position
+    evaluate.py     probes next to their controls
   eval/             evaluation
     next_frame.py   next frame scores, SSIM, gate D16
   train/            training
@@ -520,6 +555,7 @@ scripts/            command line entry points
   train.py              training and resume
   eval_next_frame.py    next frame scores and gate D16
   check_trackers.py     detector and tracker report on a stored set
+  fit_probes.py         position probes of a run, with their controls
   show_predictions.py   prediction figures of a saved model
   trial_pilots.py       record of the 2.4 trials
 configs/            one config file per experiment
