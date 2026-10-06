@@ -41,7 +41,11 @@ Before any occlusion analysis, a model must predict the next frame well: on fram
 | PredNet 5 layers | PredNet's own loss | 0.00205 | 0% | 22% | failed |
 | PredNet 5 layers | visible digit pixels weighted by 10 | **0.00010** | **95%** | **96%** | passed |
 
-With its own loss, PredNet learns the bar and the background perfectly but never draws the digit, which covers only 0.4% of the loss values. Weighting the visible digit pixels by 10 fixes it: the digit is drawn sharp and in place (SSIM 0.999), at every speed and in every condition. The first figures already point at tracking: the model draws the part of the digit that emerges from the bar, and brings a digit back at about the right time after a hidden bounce. The full analysis is in [docs/experiments.md](docs/experiments.md).
+With its own loss, PredNet learns the bar and the background perfectly but never draws the digit, which covers only 0.4% of the loss values. Weighting the visible digit pixels by 10 fixes it: the digit is drawn sharp and in place (SSIM 0.999), at every speed and in every condition. The first figures already point at tracking: the model draws the part of the digit that emerges from the bar, and brings a digit back at about the right time after a hidden bounce.
+
+**The hidden digit stays in the model's state.** A linear probe reads the digit's position in PredNet's internal states. On fully hidden frames of the validation set, it finds the vertical position within **0.6 px**, as precisely as when the digit is visible (0.7 px), and the error does not grow over 15 hidden frames, even through a bounce off a wall while hidden. The same probe on an untrained PredNet is about 10 px off, no better than the last seen position.
+
+The full analysis is in [docs/experiments.md](docs/experiments.md).
 
 ## Status
 

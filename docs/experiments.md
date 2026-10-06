@@ -39,3 +39,37 @@ The prediction figures show the digit drawn sharp and in place on every visible 
 <sub>Frames around a crossing of `val_v1`: the true frame (hidden ink in cyan), the prediction with the outline of the true digit, and the pixel error (red: missed, blue: extra).</sub>
 
 The run is kept in git as the reference result of step 2.4: `runs/pilot_prednet5l_w10/` (settings, logs, curves, `best.pt`, evaluation, and prediction figures) and its output `runs/pilot_prednet5l_w10.log`.
+
+## Step 2.8: position probe on the pilot model
+
+**Question.** While the digit is fully hidden, the correct next frame shows only the bar, so the predicted frames cannot tell whether PredNet still knows where the digit is. The position probe reads it in the model's internal state instead (option B, decision D15): a linear readout of the centroid from the pooled states R, fitted on the frozen pilot model (`runs/pilot_prednet5l_w10`, step 10000).
+
+**Setup** (`scripts/fit_probes.py`, about 9 minutes). Features: the five layers of R, average pooled to 5,760 values per frame. Probes fitted on the analysis windows of 800 new sequences of the training stream (20,059 frames, hidden frames included), penalties chosen on held out training sequences (ridge alpha 100, logistic C 0.01). Evaluation on the 1000 sequences of `val_v1`, digits never seen in training. Controls: the same probe on the same architecture at random initialization, the programmed trackers of step 2.7, and the bar center for x.
+
+**Result: the state keeps the hidden digit's position almost as precisely as a visible one.** Mean absolute error in pixels on the fully hidden frames of the analysis window (y is the main axis, critique C4):
+
+| Method | occlusion, y | occlusion, x | hidden bounce, y | hidden bounce, x |
+| --- | --- | --- | --- | --- |
+| probe of the trained PredNet | **0.60** | **0.59** | **0.81** | **1.37** |
+| probe of PredNet at random initialization | 9.66 | 5.08 | 9.14 | 6.25 |
+| last seen position | 8.88 | 25.79 | 9.47 | 19.67 |
+| Kalman, constant velocity | 3.87 | 0.12 | 3.85 | 6.68 |
+| Kalman with walls (exact reference) | 0.00 | 0.00 | 0.00 | 0.00 |
+| bar center | | 6.31 | | 3.34 |
+
+- On fully hidden frames, the probe's error (0.60 px in y) equals its error on visible frames (0.68 px): hiding the digit costs the state almost no position information.
+- The error stays flat over the first 15 hidden frames (figure below), while the last seen position and the constant velocity filter drift away. The state does not just hold the last position: it updates it as the digit moves behind the bar.
+- After a bounce off the wall while hidden, the probe still finds the digit (1.4 px in x), where the constant velocity filter is 6.7 px off on average and about 37 px after 15 frames. The state follows the bounce.
+- The probe beats the constant velocity filter even in y, where the filter is hurt by vertical bounces just before or under the bar.
+- The random initialization control reads the visible digit roughly (4 to 5 px) but loses it once hidden (9 to 10 px, close to the last seen position): the position code of hidden digits comes from training, not from the architecture.
+- The 8 bin probe agrees: the probability of the true bin of y is 0.87 on hidden frames of occlusions (0.25 at random initialization, 0.125 by chance).
+
+![Probe errors against the frames since the onset](../runs/pilot_prednet5l_w10/seed0/eval/probe_val_v1.png)
+
+<sub>Mean absolute error on y (top) and x (bottom) against the frames since the onset of the occlusion, for occlusion (left) and hidden bounce (right) sequences of `val_v1`. The probe of the trained model (yellow) stays flat at about 0.6 px.</sub>
+
+![A hidden bounce with the probe's cross](../runs/pilot_prednet5l_w10/seed0/predictions_probe/hidden_bounce_00051.png)
+
+<sub>A hidden bounce of `val_v1` (k = 12, 2 px/frame): the yellow cross, where the probe reads the digit in the state, follows the hidden digit (cyan outline) to the wall and back, through 12 fully hidden frames.</sub>
+
+**Limits.** One seed, one model, and the validation set. The probe is trained with hidden frames, so it shows that the information is in the state in a linearly readable form, not that the model uses it the same way as for visible digits. Phase 3 measures this on `test_v1` per k, speed, and condition (blackouts included), on every model of the sweep, and can test whether a probe trained on visible frames only transfers to hidden ones.
