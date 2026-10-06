@@ -5,3 +5,4 @@ stack_sizes: [3, 16, 32, 64, 128]   # channels of A and R per layer, the first i
 kernel_size: 3
 pixel_max: 1.0
 layer_loss_weights: L0               # loss on the pixel layer only ("Lall" puts 0.1 on the upper layers)
+error_mode: split                    # E_l is passed on, as in PredNet ("concat": the ablation without explicit error)

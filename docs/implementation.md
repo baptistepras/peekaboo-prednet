@@ -28,7 +28,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.2 | Training loop: training configs, validation, best and last checkpoints, logs, curves, exact resume | done |
 | 2.3 | Next frame evaluation (MSE, MAE, SSIM against copying the last frame and against the frame without its digit) and the go/no-go gate | done |
 | 2.4 | Pilot training of PredNet 5 layers and the go/no-go decision: PredNet's own loss fails, a loss weighting the digit pixels passes the gate at 95% (see [Experiments, step 2.4](experiments.md#step-24-pilot-training-of-prednet-5-layers)) | done |
-| 2.5 to 2.10 | PredNet ablations, ConvLSTM, trackers, probes, training sweep | planned |
+| 2.5 | PredNet ablations: without explicit error units (concat mode), and 3, 4, and 5 layers at matched parameters | done |
+| 2.6 to 2.10 | ConvLSTM, trackers, probes, training sweep | planned |
 | 3 | Evaluation, probes, figures | planned |
 
 ## Conventions
@@ -298,7 +299,18 @@ PredNet (Lotter, Kreiman, and Cox, ICLR 2017), reimplemented in PyTorch from the
 
 `model(frames)` takes frames (B, T, 3, H, W) in [0, 1] and returns `prediction` (B, T, 3, H, W), where `prediction[:, t]` predicts frame t from the frames before it, and `layer_errors` (B, T, L). `return_states=True` also returns R and E of every layer at every step, for the probes and the error maps. `extrapolate_from=s` switches to closed loop from step s: the previous prediction replaces the input, as in the original code. `model.loss(layer_errors)` gives the training loss.
 
-The configs `configs/models/prednet_5l.yaml` (channels 3, 16, 32, 64, 128) and `prednet_4l.yaml` (3, 32, 64, 128) both have about 3.1 million parameters. The 5 layer model reaches a 4 x 6 top layer on 64 x 96 frames, with a receptive field of 78 px per step, against 38 px for the 4 layer model (decision D9).
+**Ablation without explicit error units** (`error_mode: concat`, decision D11). Each layer passes [A_l, Ahat_l] to its representation and to the layer above, instead of E_l = [ReLU(A_l - Ahat_l), ReLU(Ahat_l - A_l)]. Both have 2 x channels of layer l, so the two modes have exactly the same parameters and the same weights fit both. A convolution can still learn the difference, so this ablation removes the inductive bias of computing the error, not any capacity. It is close to the control of Lotter et al. that passes A_l only, with the prediction added. The error units are still computed, for the loss (`layer_errors`) and for the readouts (`E`), so both modes are measured the same way. `step(frame, r, c, x)` returns the prediction, R, C, the passed on signal X, and the errors E.
+
+The model configs all have about 3.1 million parameters, within 2% of each other (checked against a hand count in the tests):
+
+| Config | Channels | Top layer on 64 x 96 | Receptive field per step | Parameters | Use |
+| --- | --- | --- | --- | --- | --- |
+| `prednet_5l.yaml` | 3, 16, 32, 64, 128 | 4 x 6 | 78 px | 3,131,628 | main model (decision D9) |
+| `prednet_4l.yaml` | 3, 32, 64, 128 | 8 x 12 | 38 px | 3,076,524 | depth ablation |
+| `prednet_3l.yaml` | 3, 48, 144 | 16 x 24 | 18 px | 3,078,924 | depth ablation |
+| `prednet_5l_concat.yaml` | 3, 16, 32, 64, 128 | 4 x 6 | 78 px | 3,131,628 | without explicit error units |
+
+The receptive field is that of a top layer unit in one time step, for 3 x 3 convolutions and 2 x 2 pooling. Matching the parameters does not match the compute: a shallower model keeps more channels at high resolution, so per frame the 4 layer model computes about 2.8 times more than the 5 layer model, and the 3 layer model about 6 times more. The depth ablation replaces the "no top down" ablation, whose result is known in advance (without R_{l+1} the pixel layer cannot represent motion of 4 px/frame). It tests the claim of Rane et al. that PredNet needs a top layer that sees the whole frame: the 3 layer model sees less than one digit per step, and only through recurrence can it gather more.
 
 `peekaboo.models.build_model(config)` builds a model from a model config, chosen by its `model` key (`prednet` for now).
 
@@ -458,7 +470,9 @@ configs/            one config file per experiment
   data/val_v1.yaml  validation set
   data/test_v1.yaml test set
   models/prednet_5l.yaml  PredNet, 5 layers
-  models/prednet_4l.yaml  PredNet, 4 layers
+  models/prednet_4l.yaml  PredNet, 4 layers (depth ablation)
+  models/prednet_3l.yaml  PredNet, 3 layers (depth ablation)
+  models/prednet_5l_concat.yaml  PredNet, 5 layers, without explicit error units
   train/smoke.yaml  short training run that checks the pipeline
   train/pilot_prednet5l_w10.yaml  pilot run of PredNet 5 layers, weighted loss
   train/pilot_prednet5l.yaml  first pilot, PredNet's own loss (failed)

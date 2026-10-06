@@ -1,5 +1,7 @@
 """Tests for the PredNet implementation: shapes, parameter count, reference semantics, loss, and devices."""
 
+import dataclasses
+
 import pytest
 import torch
 
@@ -9,6 +11,7 @@ from peekaboo.models.prednet import PredNet, PredNetConfig, count_parameters, ha
 from peekaboo.paths import CONFIGS_DIR
 
 SMALL = PredNetConfig(stack_sizes=(3, 4, 8), layer_loss_weights=(1.0, 0.1, 0.1))
+SMALL_CONCAT = dataclasses.replace(SMALL, error_mode="concat")
 
 
 def expected_parameters(stack: tuple[int, ...], k: int = 3) -> int:
@@ -29,12 +32,25 @@ def test_hard_sigmoid_is_keras_2() -> None:
     assert torch.allclose(hard_sigmoid(x), torch.tensor([0.0, 0.0, 0.5, 0.7, 1.0, 1.0]))
 
 
-def test_parameter_counts_of_the_project_models() -> None:
-    """The 5 and 4 layer configs match the hand count, about 3.1 million parameters each."""
-    for name, expected in (("prednet_5l", 3_131_628), ("prednet_4l", 3_076_524)):
-        config = PredNetConfig.from_config(load_config(CONFIGS_DIR / "models" / f"{name}.yaml"))
-        model = PredNet(config)
-        assert count_parameters(model) == expected_parameters(config.stack_sizes) == expected
+PROJECT_MODELS = {"prednet_5l": 3_131_628, "prednet_4l": 3_076_524, "prednet_3l": 3_078_924,
+                  "prednet_5l_concat": 3_131_628}
+
+
+@pytest.mark.parametrize("name", PROJECT_MODELS)
+def test_parameter_counts_of_the_project_models(name: str) -> None:
+    """Every model config matches the hand count and stays within 10% of the main model (decision D9)."""
+    config = PredNetConfig.from_config(load_config(CONFIGS_DIR / "models" / f"{name}.yaml"))
+    model = PredNet(config)
+    assert count_parameters(model) == expected_parameters(config.stack_sizes) == PROJECT_MODELS[name]
+    assert abs(PROJECT_MODELS[name] / PROJECT_MODELS["prednet_5l"] - 1) < 0.1
+
+
+def test_project_models_differ_only_where_intended() -> None:
+    """The concat config is the 5 layer model with only error_mode changed."""
+    main = PredNetConfig.from_config(load_config(CONFIGS_DIR / "models" / "prednet_5l.yaml"))
+    concat = PredNetConfig.from_config(load_config(CONFIGS_DIR / "models" / "prednet_5l_concat.yaml"))
+    assert main.error_mode == "split" and concat.error_mode == "concat"
+    assert dataclasses.replace(concat, error_mode="split") == main
 
 
 def test_shapes_and_first_prediction() -> None:
@@ -103,3 +119,62 @@ def test_runs_on_the_selected_device() -> None:
     loss = model.loss(model(frames)["layer_errors"])
     loss.backward()
     assert loss.device.type == device.type and torch.isfinite(loss)
+
+
+def test_concat_mode_has_the_same_parameters_and_outputs() -> None:
+    """Concat mode keeps every parameter shape, so split weights load into it, and returns the same outputs."""
+    split, concat = PredNet(SMALL), PredNet(SMALL_CONCAT)
+    concat.load_state_dict(split.state_dict())
+    frames = torch.rand(2, 4, 3, 16, 24)
+    a, b = split(frames, return_states=True), concat(frames, return_states=True)
+    assert set(a) == set(b)
+    for key in ("prediction", "layer_errors"):
+        assert a[key].shape == b[key].shape
+    assert [e.shape for e in a["E"][-1]] == [e.shape for e in b["E"][-1]]
+    # the first prediction comes from zero states in both modes, the later ones differ
+    assert torch.equal(a["prediction"][:, 0], b["prediction"][:, 0])
+    assert not torch.allclose(a["prediction"][:, 1:], b["prediction"][:, 1:])
+
+
+@pytest.mark.parametrize("config", [SMALL, SMALL_CONCAT], ids=["split", "concat"])
+def test_each_layer_passes_on_its_signal(config: PredNetConfig) -> None:
+    """Split mode passes E_l on; concat mode passes [A_l, Ahat_l], where Ahat_0 is the prediction and A_0 the frame.
+    In both modes the returned errors are E_l = [ReLU(A_l - Ahat_l), ReLU(Ahat_l - A_l)]."""
+    torch.manual_seed(0)
+    model = PredNet(config)
+    frame = torch.rand(2, 3, 16, 24)
+    r, c, x = model.initial_state(2, 16, 24, frame)
+    x = [torch.rand_like(v) for v in x]  # a nonzero previous signal
+    prediction, _, _, new_x, new_e = model.step(frame, r, c, x)
+    assert torch.equal(new_e[0], torch.cat([torch.relu(frame - prediction), torch.relu(prediction - frame)], dim=1))
+    for signal, error in zip(new_x, new_e):
+        assert signal.shape == error.shape
+    if config.error_mode == "split":
+        assert all(s is e for s, e in zip(new_x, new_e))
+    else:
+        assert torch.equal(new_x[0], torch.cat([frame, prediction], dim=1))
+        # A_l and Ahat_l are recovered from the errors: A - Ahat = E+ - E-
+        for signal, error in zip(new_x[1:], new_e[1:]):
+            target, ahat = signal.chunk(2, dim=1)
+            plus, minus = error.chunk(2, dim=1)
+            assert torch.allclose(target - ahat, plus - minus, atol=1e-6)
+
+
+def test_concat_mode_trains_and_runs_on_the_selected_device() -> None:
+    """One Adam step lowers the loss of a concat model, on the auto selected device."""
+    torch.manual_seed(0)
+    device = get_device("auto")
+    model = PredNet(SMALL_CONCAT).to(device)
+    frames = torch.rand(2, 6, 3, 16, 24, device=device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+    before = model.loss(model(frames)["layer_errors"])
+    before.backward()
+    assert all(p.grad is not None for p in model.parameters())
+    optimizer.step()
+    assert model.loss(model(frames)["layer_errors"]) < before
+
+
+def test_unknown_error_mode_is_rejected() -> None:
+    """Only "split" and "concat" exist."""
+    with pytest.raises(ValueError):
+        PredNet(dataclasses.replace(SMALL, error_mode="diff"))

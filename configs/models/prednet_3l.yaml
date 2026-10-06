@@ -1,0 +1,7 @@
+# PredNet with 3 layers, for the depth ablation (C5): top layer at 16 x 24, receptive field of 18 px per step, less
+# than a digit. 3,078,924 parameters, within 2% of the 5 layer model.
+model: prednet
+stack_sizes: [3, 48, 144]
+kernel_size: 3
+pixel_max: 1.0
+layer_loss_weights: L0

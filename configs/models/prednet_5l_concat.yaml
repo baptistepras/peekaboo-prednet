@@ -1,0 +1,9 @@
+# PredNet 5 layers without explicit error units (decision D11): each layer passes [A_l, Ahat_l] instead of
+# E_l = [ReLU(A_l - Ahat_l), ReLU(Ahat_l - A_l)] to its representation and to the layer above. Same channels and
+# parameters as prednet_5l.yaml, so only the inductive bias of computing the error is removed.
+model: prednet
+stack_sizes: [3, 16, 32, 64, 128]
+kernel_size: 3
+pixel_max: 1.0
+layer_loss_weights: L0
+error_mode: concat                   # "split" (PredNet) or "concat"

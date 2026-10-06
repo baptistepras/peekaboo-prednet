@@ -79,6 +79,18 @@ def test_find_and_load_a_run_model(tmp_path: Path) -> None:
     assert torch.equal(loaded(frames)["prediction"], model(frames)["prediction"])
 
 
+def test_concat_model_reloads_as_concat(tmp_path: Path) -> None:
+    """Concat weights also fit a split model, so load_model must rebuild the mode from the stored settings."""
+    torch.manual_seed(0)
+    config = {"model": {**CONFIG["model"], "error_mode": "concat"}}
+    model = build_model(config["model"])
+    save_checkpoint(tmp_path / "best.pt", model, config=config)
+    loaded, _ = load_model(tmp_path / "best.pt", torch.device("cpu"))
+    frames = torch.rand(1, 4, 3, 16, 24)
+    assert loaded.config.error_mode == "concat"
+    assert torch.equal(loaded(frames)["prediction"], model(frames)["prediction"])
+
+
 def test_unknown_model_is_an_error() -> None:
     """build_model rejects a config whose model it does not know."""
     with pytest.raises(ValueError):

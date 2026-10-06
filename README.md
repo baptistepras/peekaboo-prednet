@@ -48,8 +48,8 @@ With its own loss, PredNet learns the bar and the background perfectly but never
 | Phase | Content | State |
 | --- | --- | --- |
 | 1 | Occlusion generator, surprise tuples, ground truth, validation and test sets, PredNet | done |
-| 2.1 to 2.4 | Training, evaluation, prediction figures, and the pilot run of PredNet | done |
-| 2.5 to 2.10 | PredNet ablations, ConvLSTM, trackers, position probe, amodal decoder, training sweep | planned |
+| 2.1 to 2.5 | Training, evaluation, prediction figures, the pilot run of PredNet, and its ablations (no explicit error units, 3 and 4 layers) | done |
+| 2.6 to 2.10 | ConvLSTM, trackers, position probe, amodal decoder, training sweep | planned |
 | 3 | Evaluation on the test set: occlusion curves, correction latency, surprise | planned |
 
 The detailed status of every step is in [docs/implementation.md](docs/implementation.md#status).
