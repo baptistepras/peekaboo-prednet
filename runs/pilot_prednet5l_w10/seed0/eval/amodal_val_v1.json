@@ -1,0 +1,136 @@
+{
+  "run": "runs/pilot_prednet5l_w10/seed0",
+  "checkpoint": "best.pt",
+  "step": 10000,
+  "data": "val_v1",
+  "sequences": 1000,
+  "kernel": 1,
+  "training": {
+    "model": {
+      "parameters": 244,
+      "loss_first": 0.2863977253437042,
+      "loss_last_50": 0.09237142384052277
+    },
+    "random": {
+      "parameters": 244,
+      "loss_first": 0.2973259687423706,
+      "loss_last_50": 0.22458595395088196
+    }
+  },
+  "iou": {
+    "control / partial": {
+      "frames": 1606.0,
+      "decoder": 0.5738250613212585,
+      "random_decoder": 0.019089510664343834,
+      "template_kalman": 0.863085925579071,
+      "template_walls": 1.0
+    },
+    "control / visible": {
+      "frames": 3518.0,
+      "decoder": 0.6477591395378113,
+      "random_decoder": 0.02641688659787178,
+      "template_kalman": 0.8902209401130676,
+      "template_walls": 0.9974830150604248
+    },
+    "hidden_bounce / occluded": {
+      "frames": 868.0,
+      "decoder": 0.40583139657974243,
+      "random_decoder": 0.0,
+      "template_kalman": 0.4389946162700653,
+      "template_walls": 1.0
+    },
+    "hidden_bounce / partial": {
+      "frames": 677.0,
+      "decoder": 0.5360225439071655,
+      "random_decoder": 0.009783674031496048,
+      "template_kalman": 0.4606304168701172,
+      "template_walls": 1.0
+    },
+    "hidden_bounce / visible": {
+      "frames": 1287.0,
+      "decoder": 0.6601616144180298,
+      "random_decoder": 0.016120823100209236,
+      "template_kalman": 0.7646892070770264,
+      "template_walls": 1.0
+    },
+    "occlusion / occluded": {
+      "frames": 5158.0,
+      "decoder": 0.41698452830314636,
+      "random_decoder": 0.0,
+      "template_kalman": 0.7318606972694397,
+      "template_walls": 1.0
+    },
+    "occlusion / partial": {
+      "frames": 4226.0,
+      "decoder": 0.5392047166824341,
+      "random_decoder": 0.014073774218559265,
+      "template_kalman": 0.7422898411750793,
+      "template_walls": 1.0
+    },
+    "occlusion / visible": {
+      "frames": 7655.0,
+      "decoder": 0.6328366994857788,
+      "random_decoder": 0.025562332943081856,
+      "template_kalman": 0.7656950354576111,
+      "template_walls": 0.9865118265151978
+    }
+  },
+  "corr": {
+    "control / partial": {
+      "frames": 1606.0,
+      "decoder": 0.8259146809577942,
+      "random_decoder": 0.37438422441482544,
+      "template_kalman": 0.8846858739852905,
+      "template_walls": 0.9999997019767761
+    },
+    "control / visible": {
+      "frames": 3518.0,
+      "decoder": 0.8884307742118835,
+      "random_decoder": 0.3365490436553955,
+      "template_kalman": 0.9232814908027649,
+      "template_walls": 0.997949481010437
+    },
+    "hidden_bounce / occluded": {
+      "frames": 868.0,
+      "decoder": 0.7040256857872009,
+      "random_decoder": 0.20408861339092255,
+      "template_kalman": 0.5498912930488586,
+      "template_walls": 0.9999983310699463
+    },
+    "hidden_bounce / partial": {
+      "frames": 677.0,
+      "decoder": 0.7939115166664124,
+      "random_decoder": 0.29611364006996155,
+      "template_kalman": 0.7753082513809204,
+      "template_walls": 0.9999989867210388
+    },
+    "hidden_bounce / visible": {
+      "frames": 1287.0,
+      "decoder": 0.892920732498169,
+      "random_decoder": 0.28568562865257263,
+      "template_kalman": 0.9483270049095154,
+      "template_walls": 0.9999979138374329
+    },
+    "occlusion / occluded": {
+      "frames": 5158.0,
+      "decoder": 0.7351870536804199,
+      "random_decoder": 0.15945321321487427,
+      "template_kalman": 0.811748206615448,
+      "template_walls": 0.9999990463256836
+    },
+    "occlusion / partial": {
+      "frames": 4226.0,
+      "decoder": 0.8024389147758484,
+      "random_decoder": 0.2617567777633667,
+      "template_kalman": 0.832084059715271,
+      "template_walls": 0.9999991655349731
+    },
+    "occlusion / visible": {
+      "frames": 7655.0,
+      "decoder": 0.8842180371284485,
+      "random_decoder": 0.27349168062210083,
+      "template_kalman": 0.8462712168693542,
+      "template_walls": 0.989425778388977
+    }
+  }
+}

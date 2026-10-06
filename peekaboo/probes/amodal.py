@@ -142,10 +142,13 @@ def ink_scores(image: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor,
 
 
 def shift(image: np.ndarray, dy: int, dx: int) -> np.ndarray:
-    """Move an image (H, W) by whole pixels, filling with zeros."""
+    """Move an image (H, W) by whole pixels, filling with zeros. A move of the whole height or width, or more (a
+    tracker far outside the frame), leaves an empty image."""
     out = np.zeros_like(image)
     height, width = image.shape
-    out[max(dy, 0):height + min(dy, 0), max(dx, 0):width + min(dx, 0)] = \
+    if abs(dy) >= height or abs(dx) >= width:
+        return out
+    out[max(dy, 0):height - max(-dy, 0), max(dx, 0):width - max(-dx, 0)] = \
         image[max(-dy, 0):height - max(dy, 0), max(-dx, 0):width - max(dx, 0)]
     return out
 

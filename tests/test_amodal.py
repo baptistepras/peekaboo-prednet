@@ -73,21 +73,26 @@ def test_scores() -> None:
 
 
 def test_shift_moves_and_fills_with_zeros() -> None:
-    """A shifted image moves by whole pixels, and what comes in from the border is empty."""
+    """A shifted image moves by whole pixels, what comes in from the border is empty, and a move beyond the frame
+    leaves nothing."""
     image = np.arange(12.0).reshape(3, 4)
     assert np.array_equal(shift(image, 1, -1), [[0, 0, 0, 0], [1, 2, 3, 0], [5, 6, 7, 0]])
+    assert np.array_equal(shift(image, -2, 3), [[0, 0, 0, 8], [0, 0, 0, 0], [0, 0, 0, 0]])
     assert np.array_equal(shift(image, 0, 0), image)
+    for dy, dx in ((3, 0), (-5, 1), (0, 4), (1, -70)):
+        assert not shift(image, dy, dx).any()
 
 
 def test_template_with_walls_is_the_true_hidden_digit(pool: DigitPool, settings: GeneratorSettings) -> None:
-    """Moved by the exact tracker, the last fully visible digit is exactly the amodal digit while it is hidden."""
+    """Moved by the exact tracker, the last fully visible digit is exactly the amodal digit while it is hidden in
+    the analysis window (an earlier contact with the bar may hide the digit before it was ever seen whole)."""
     for index in range(4):
         spec = sample_spec(pool, settings, "test", index, 0, condition="occlusion", k=6, speed=3)
         r = render_sequence(spec, pool.sprite(spec.digit_index), RENDER, settings.crossing.thresholds)
         frames = r.observed.transpose(0, 3, 1, 2)
         tracks = run_trackers(frames, r.truth.center, r.truth.state)
         templates = template_images(frames, detect(frames), tracks["kalman_walls"].prediction)
-        hidden = np.flatnonzero(r.truth.state == STATE_NAMES.index("occluded"))
+        hidden = np.flatnonzero((r.truth.state == STATE_NAMES.index("occluded")) & r.truth.in_window)
         assert hidden.size > 0
         assert np.allclose(templates[hidden], r.amodal[hidden] / 255.0, atol=1e-6)
 
