@@ -1,8 +1,10 @@
-"""Benchmark PredNet training on the selected device: time per step, data wait, memory, and a short training run.
+"""Benchmark the training of a model (PredNet by default, any model config) on the selected device: time per step,
+data wait, memory, and a short training run.
 
+The loss is the unweighted one (digit weight 1): PredNet's own loss for PredNet, half the L1 error for other models.
 Results go to runs/bench/<model>_b<batch>_t<frames>_<device>/: a copy of the settings, results.json, the loss
-curve, predictions on validation sequences, and the trained model (model.pt, for scripts/show_predictions.py). After a few hundred steps the predictions are still rough: they
-show that the whole pipeline works, not how well PredNet does.
+curve, predictions on validation sequences, and the trained model (model.pt, for scripts/show_predictions.py). After a
+few hundred steps the predictions are still rough: they show that the whole pipeline works, not how well the model does.
 """
 
 import argparse
@@ -25,10 +27,12 @@ from peekaboo.data.mnist_pool import build_digit_pool
 from peekaboo.data.render import RenderSettings
 from peekaboo.data.store import StoredDataset
 from peekaboo.device import describe_device, get_device, synchronize
-from peekaboo.models.prednet import PredNet, PredNetConfig, count_parameters
+from peekaboo.models import build_model
+from peekaboo.models.prednet import count_parameters
 from peekaboo.paths import CONFIGS_DIR, DATASETS_DIR, RUNS_DIR
 from peekaboo.seeding import seed_everything
 from peekaboo.train.checkpoint import save_checkpoint
+from peekaboo.train.losses import training_loss
 
 
 def memory_bytes(device: torch.device) -> int | None:
@@ -40,7 +44,7 @@ def memory_bytes(device: torch.device) -> int | None:
     return None
 
 
-def save_predictions(model: PredNet, batch: dict[str, torch.Tensor], seq_len: int, path: Path) -> dict[str, float]:
+def save_predictions(model: torch.nn.Module, batch: dict[str, torch.Tensor], seq_len: int, path: Path) -> dict[str, float]:
     """Draw actual and predicted frames of a few validation sequences, and compare with copying the last frame."""
     model.eval()
     with torch.no_grad():
@@ -66,7 +70,7 @@ def save_predictions(model: PredNet, batch: dict[str, torch.Tensor], seq_len: in
                     ax.set_ylabel(label, fontsize=6)
                 if i == 0 and row == 0:
                     ax.set_title(f"t={t}", fontsize=6)
-    fig.suptitle(f"Validation sequences: actual frame t and PredNet's prediction of it from frames before t "
+    fig.suptitle(f"Validation sequences: actual frame t and the model's prediction of it from frames before t "
                  f"(MSE {model_mse:.4f}, copy last frame {copy_mse:.4f})", fontsize=8)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     fig.savefig(path, dpi=110)
@@ -104,7 +108,7 @@ def main() -> int:
     loader = make_loader(dataset, args.batch_size, start=0, count=args.batch_size * total_steps,
                          num_workers=args.workers)
 
-    model = PredNet(PredNetConfig.from_config(model_config)).to(device)
+    model = build_model(model_config).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     run_dir = args.out / f"{args.model.stem}_b{args.batch_size}_t{args.seq_len}_{device.type}"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -122,8 +126,8 @@ def main() -> int:
         data_time = time.perf_counter() - start
 
         start = time.perf_counter()
-        out = model(batch["frames"][:, :args.seq_len])
-        loss = model.loss(out["layer_errors"])
+        frames = batch["frames"][:, :args.seq_len]
+        loss = training_loss(model, model(frames), frames)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
@@ -155,7 +159,7 @@ def main() -> int:
     fig, ax = plt.subplots(figsize=(6, 3.5))
     ax.plot(np.arange(1, total_steps + 1), losses, lw=1)
     ax.set_xlabel("step")
-    ax.set_ylabel("PredNet loss (L0)")
+    ax.set_ylabel("training loss (digit weight 1)")
     ax.set_yscale("log")
     ax.set_title(f"{args.model.stem}, batch {args.batch_size}, {args.seq_len} frames", fontsize=9)
     fig.tight_layout()
@@ -179,7 +183,7 @@ def main() -> int:
     print(f"loss {results['loss_first']:.5f} at the first step, {results['loss_last_10']:.5f} over the last 10")
     if "val_mse" in results:
         print(f"validation MSE {results['val_mse']:.5f} (copy last frame {results['val_copy_last_mse']:.5f}); "
-              f"after so few steps, PredNet is not expected to beat the copy yet")
+              f"after so few steps, the model is not expected to beat the copy yet")
     print(f"saved in {run_dir}")
     print(f"draw the predictions with: python -m scripts.show_predictions --run {run_dir}")
     return 0

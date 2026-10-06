@@ -1,0 +1,9 @@
+# ConvLSTM baseline (Shi et al., 2015), with peepholes: 4 x 4 patches (a 16 x 24 grid for 64 x 96 frames), four layers
+# of 64 channels with 5 x 5 kernels, and a 1 x 1 output on the hidden states of all layers.
+# 3,188,528 parameters, within 2% of PredNet 5 layers.
+model: convlstm
+hidden_sizes: [64, 64, 64, 64]
+kernel_size: 5
+patch_size: 4                        # space to depth: each 4 x 4 patch of the frame is one position of the grid
+channels: 3
+pixel_max: 1.0

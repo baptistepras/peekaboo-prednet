@@ -29,7 +29,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.3 | Next frame evaluation (MSE, MAE, SSIM against copying the last frame and against the frame without its digit) and the go/no-go gate | done |
 | 2.4 | Pilot training of PredNet 5 layers and the go/no-go decision: PredNet's own loss fails, a loss weighting the digit pixels passes the gate at 95% (see [Experiments, step 2.4](experiments.md#step-24-pilot-training-of-prednet-5-layers)) | done |
 | 2.5 | PredNet ablations: without explicit error units (concat mode), and 3, 4, and 5 layers at matched parameters | done |
-| 2.6 to 2.10 | ConvLSTM, trackers, probes, training sweep | planned |
+| 2.6 | ConvLSTM baseline (Shi et al., with peepholes) with the interface of PredNet, at matched parameters | done |
+| 2.7 to 2.10 | Trackers, probes, training sweep | planned |
 | 3 | Evaluation, probes, figures | planned |
 
 ## Conventions
@@ -312,7 +313,19 @@ The model configs all have about 3.1 million parameters, within 2% of each other
 
 The receptive field is that of a top layer unit in one time step, for 3 x 3 convolutions and 2 x 2 pooling. Matching the parameters does not match the compute: a shallower model keeps more channels at high resolution, so per frame the 4 layer model computes about 2.8 times more than the 5 layer model, and the 3 layer model about 6 times more. The depth ablation replaces the "no top down" ablation, whose result is known in advance (without R_{l+1} the pixel layer cannot represent motion of 4 px/frame). It tests the claim of Rane et al. that PredNet needs a top layer that sees the whole frame: the 3 layer model sees less than one digit per step, and only through recurrence can it gather more.
 
-`peekaboo.models.build_model(config)` builds a model from a model config, chosen by its `model` key (`prednet` for now).
+#### `peekaboo/models/convlstm.py`
+
+The ConvLSTM baseline (Shi et al., NeurIPS 2015), written from the paper. It is the standard recurrent video predictor without any error units, so it shows what predictive coding adds.
+
+- **Cell** (`ConvLSTMCell`): Eq. 3 of the paper, with peepholes from the cell state to the input and forget gates (previous state) and to the output gate (new state), standard sigmoid gates, and one convolution of [X_t, H_{t-1}] for the four gates. **Deviation**: one peephole weight per channel instead of one per channel and pixel. Weights per pixel would give the model a code of absolute position that PredNet, fully convolutional, does not have, and the position probes (step 2.8) would then compare unequal models.
+- **Architecture** (`configs/models/convlstm.yaml`): each frame is cut into 4 x 4 patches (space to depth, as in OpenSTL for Moving MNIST), so the layers run on a 16 x 24 grid with 48 input channels; four layers of 64 channels with 5 x 5 kernels; and a 1 x 1 convolution on the hidden states of all layers gives the patches of the predicted frame, as in the paper's forecasting network. The output goes through ReLU and is clipped at 1, like PredNet's pixel layer, so both models can predict an exactly black background. 3,188,528 parameters, within 2% of PredNet 5 layers.
+- **Why 4 x 4 patches.** Nearly all parameters of a ConvLSTM sit in convolutions applied at every position, so its compute per frame is about its parameters times the grid size. With 2 x 2 patches (a 32 x 48 grid), the parameter matched model would compute about 14 times more than PredNet 5 layers per frame; with 4 x 4 patches, about 3.6 times. A digit of 20 px spans 5 patches and moves at most one patch per frame.
+- **Interface**: the same as PredNet. `model(frames)` returns `prediction`, where `prediction[:, t]` predicts frame t from the frames before it (the first prediction, from zero states, is black). `return_states=True` adds `R`: for each step t, the hidden states H of each layer that make the prediction of frame t (they have seen frames 0 to t - 1), the counterpart of PredNet's R for the probes. `extrapolate_from=s` switches to closed loop: from step s on, the prediction of frame t replaces frame t as input. There are no error units: the model trains on the common loss of `peekaboo/train/losses.py`.
+- `ConvLSTMConfig.from_config(config)`, `initial_state`, `readout(h)` (the frame predicted from the hidden states), and `step(frame, h, c)`.
+
+#### `peekaboo/models/__init__.py`
+
+`build_model(config)` builds a model from a model config, chosen by its `model` key: `prednet` or `convlstm`.
 
 ### Training
 
@@ -435,7 +448,8 @@ peekaboo/           the package
     validate.py     dataset validation checks
     build.py        validation and test sets from set configs
   models/           video prediction models (build_model in __init__.py)
-    prednet.py      PredNet
+    prednet.py      PredNet and its ablations
+    convlstm.py     ConvLSTM baseline
   eval/             evaluation
     next_frame.py   next frame scores, SSIM, gate D16
   train/            training
@@ -460,7 +474,7 @@ scripts/            command line entry points
   render_examples.py    contact sheets and GIFs of every condition
   bench_generator.py    generator and loader timing
   make_dataset.py       build, write, and validate a val or test set
-  bench_prednet.py      PredNet training benchmark
+  bench_prednet.py      training benchmark of a model (PredNet by default)
   train.py              training and resume
   eval_next_frame.py    next frame scores and gate D16
   show_predictions.py   prediction figures of a saved model
@@ -473,6 +487,7 @@ configs/            one config file per experiment
   models/prednet_4l.yaml  PredNet, 4 layers (depth ablation)
   models/prednet_3l.yaml  PredNet, 3 layers (depth ablation)
   models/prednet_5l_concat.yaml  PredNet, 5 layers, without explicit error units
+  models/convlstm.yaml    ConvLSTM baseline
   train/smoke.yaml  short training run that checks the pipeline
   train/pilot_prednet5l_w10.yaml  pilot run of PredNet 5 layers, weighted loss
   train/pilot_prednet5l.yaml  first pilot, PredNet's own loss (failed)

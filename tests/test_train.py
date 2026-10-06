@@ -12,7 +12,7 @@ from peekaboo.data.mnist_pool import DigitPool
 from peekaboo.data.render import RenderSettings
 from peekaboo.models import build_model
 from peekaboo.paths import CONFIGS_DIR, PROJECT_ROOT
-from peekaboo.train.checkpoint import load_checkpoint
+from peekaboo.train.checkpoint import load_checkpoint, load_model
 from peekaboo.train.losses import next_frame_l1, training_loss
 from peekaboo.train.loop import TrainSettings, format_duration, learning_rate, train, validate
 from peekaboo.train.metrics import read_csv
@@ -39,13 +39,13 @@ def streams(pool: DigitPool, settings: GeneratorSettings) -> tuple[OnTheFlyDatas
 
 
 def run(run_dir: Path, pool: DigitPool, settings: GeneratorSettings, resume: bool = False,
-        stop_at: int | None = None) -> torch.nn.Module:
+        stop_at: int | None = None, model_config: dict = MODEL) -> torch.nn.Module:
     """Build the tiny model with a fixed initialization and train it."""
     torch.manual_seed(0)
-    model = build_model(MODEL)
+    model = build_model(model_config)
     train_data, val_data = streams(pool, settings)
-    train(run_dir, model, train_data, val_data, SETTINGS, {"name": "test", "model": MODEL}, CPU, resume=resume,
-          stop_at=stop_at, log=lambda line: None)
+    train(run_dir, model, train_data, val_data, SETTINGS, {"name": "test", "model": model_config}, CPU,
+          resume=resume, stop_at=stop_at, log=lambda line: None)
     return model
 
 
@@ -63,6 +63,15 @@ def test_tiny_run_writes_every_file(tmp_path: Path, pool: DigitPool, settings: G
     assert load_checkpoint(tmp_path / "best.pt")["step"] == int(val[-1]["best_step"])
     rates = [float(r["lr"]) for r in read_csv(tmp_path / "train_metrics.csv")]
     assert rates == pytest.approx([1e-2, 1e-2, 1e-3, 1e-3])
+
+
+def test_tiny_convlstm_run(tmp_path: Path, pool: DigitPool, settings: GeneratorSettings) -> None:
+    """The ConvLSTM baseline goes through the same loop: logs, validations, and a best checkpoint that reloads."""
+    config = {"model": "convlstm", "hidden_sizes": [4], "kernel_size": 3, "patch_size": 4}
+    model = run(tmp_path, pool, settings, model_config=config)
+    assert [int(r["step"]) for r in read_csv(tmp_path / "val_metrics.csv")] == [0, 2, 4]
+    loaded, _ = load_model(tmp_path / "best.pt", CPU)
+    assert type(loaded) is type(model)
 
 
 def test_resume_equals_an_uninterrupted_run(tmp_path: Path, pool: DigitPool, settings: GeneratorSettings) -> None:

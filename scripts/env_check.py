@@ -1,4 +1,4 @@
-"""Check the project environment: packages, selected device, and a PredNet style forward and backward pass."""
+"""Check the project environment: packages, selected device, and a forward and backward pass of the model ops."""
 
 import argparse
 import importlib
@@ -45,7 +45,8 @@ def check_packages() -> bool:
 
 
 def run_op_check(device: torch.device) -> float:
-    """Run the ops PredNet needs (conv, hard sigmoid, pooling, upsampling, split errors) forward and backward."""
+    """Run the ops the models need forward and backward: conv, hard sigmoid, pooling, upsampling, and split errors for
+    PredNet; space to depth, sigmoid, and depth to space for the ConvLSTM."""
     x = torch.randn(2, 41, 64, 64, device=device, requires_grad=True)
     conv = nn.Conv2d(41, 12, 3, padding=1).to(device)
     y = conv(x)
@@ -53,7 +54,9 @@ def run_op_check(device: torch.device) -> float:
     h = gate * torch.tanh(y)
     up = F.interpolate(F.max_pool2d(h, 2), scale_factor=2, mode="nearest")
     error = torch.cat([F.relu(up - h), F.relu(h - up)], dim=1)
-    loss = error.mean() + torch.clamp(F.relu(y), max=1.0).mean()  # SatLU at pixel_max = 1
+    patches = torch.sigmoid(F.pixel_unshuffle(h, 4))  # ConvLSTM gates on a grid of 4 x 4 patches
+    frame = F.pixel_shuffle(patches, 4)
+    loss = error.mean() + torch.clamp(F.relu(y), max=1.0).mean() + frame.mean()  # SatLU at pixel_max = 1
     loss.backward()
     synchronize(device)
     return float(loss.item())
