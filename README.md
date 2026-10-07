@@ -3,10 +3,10 @@
 Controlled occlusion benchmark and analysis of PredNet: tracking through occlusion, reappearance, and surprise.
 
 <p align="center">
-  <img src="runs/pilot_prednet5l_w10/seed0/predictions/occlusion.gif" alt="PredNet predictions on occlusion sequences" width="49%">
-  <img src="runs/pilot_prednet5l_w10/seed0/predictions/hidden_bounce.gif" alt="PredNet predictions on hidden bounce sequences" width="49%">
+  <img src="runs/pilot_prednet5l_w10/seed0/predictions_probe/occlusion.gif" alt="PredNet predictions on occlusion sequences, with the hidden digit read from its internal state" width="49%">
+  <img src="runs/pilot_prednet5l_w10/seed0/predictions_probe/hidden_bounce.gif" alt="PredNet predictions on hidden bounce sequences, with the hidden digit read from its internal state" width="49%">
 </p>
-<p align="center"><sub>Pilot PredNet on validation sequences: occlusion (left) and hidden bounce (right). For each sequence: true frame (hidden ink in cyan), prediction made before the frame arrives, prediction error.</sub></p>
+<p align="center"><sub>Pilot PredNet on validation sequences: occlusion (left) and hidden bounce (right). For each sequence: the true frame (hidden ink in cyan); the prediction made before the frame arrives, with the true digit outlined, and what is read in the model's internal state, the position (yellow cross) and the digit itself (magenta); the prediction error.</sub></p>
 
 A digit moves behind an occluder and reappears, as expected or in a surprising way. We measure what a predictive coding video model (PredNet) predicts during and after the occlusion, what its internal state still encodes about the hidden object, and how strongly its prediction errors react to surprising reappearances. The project provides:
 
