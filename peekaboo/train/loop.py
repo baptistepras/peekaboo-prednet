@@ -23,6 +23,7 @@ from torch.utils.data import Dataset
 
 from peekaboo.config import save_config
 from peekaboo.data.dataset import make_loader, prepare_batch
+from peekaboo.eval.next_frame import blank_prediction
 from peekaboo.train.checkpoint import load_checkpoint, save_checkpoint
 from peekaboo.train.losses import training_loss, weighted_pixel_loss
 from peekaboo.train.metrics import TRAIN_FIELDS, VAL_FIELDS, CsvLog
@@ -82,18 +83,20 @@ def validate(model: torch.nn.Module, dataset: Dataset, count: int, batch_size: i
     """Validation scores on the first `count` sequences, over frames 1 to seq_len - 1.
 
     val_loss is the weighted pixel loss of the training objective, which chooses the best checkpoint. The plain L1
-    and squared errors per pixel of the model and of copying the last frame are given for reference.
+    and squared errors per pixel of the model, of copying the last frame, and of the blank frame (the true frame with
+    its digit erased, where a model that never draws the digit settles) are given for reference.
     """
     was_training = model.training
     model.eval()
-    sums = {"val_loss": 0.0, "val_l1": 0.0, "val_mse": 0.0, "copy_l1": 0.0, "copy_mse": 0.0}
+    sums = {"val_loss": 0.0, "val_l1": 0.0, "val_mse": 0.0, "copy_l1": 0.0, "copy_mse": 0.0, "blank_l1": 0.0,
+            "blank_mse": 0.0}
     pixels = 0
     for batch in make_loader(dataset, batch_size, start=0, count=count):
         frames = prepare_batch(batch, device)["frames"][:, :seq_len]
         prediction = model(frames)["prediction"]
         target = frames[:, 1:]
         sums["val_loss"] += float(weighted_pixel_loss(prediction, frames, digit_weight)) * target.numel()
-        for name, guess in (("val", prediction[:, 1:]), ("copy", frames[:, :-1])):
+        for name, guess in (("val", prediction[:, 1:]), ("copy", frames[:, :-1]), ("blank", blank_prediction(target))):
             difference = guess - target
             sums[f"{name}_l1"] += float(difference.abs().sum())
             sums[f"{name}_mse"] += float(difference.square().sum())
@@ -133,8 +136,8 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
             best.update(val_loss=metrics["val_loss"], step=step)
         val_log.write(step=step, **metrics, best_step=best["step"])
         log(f"validation at step {step}: loss {metrics['val_loss']:.5f}, L1 {metrics['val_l1']:.5f} (copy last frame "
-            f"{metrics['copy_l1']:.5f}), MSE {metrics['val_mse']:.5f} (copy {metrics['copy_mse']:.5f}), best step "
-            f"{best['step']}")
+            f"{metrics['copy_l1']:.5f}), MSE {metrics['val_mse']:.5f} (copy {metrics['copy_mse']:.5f}, blank frame "
+            f"{metrics['blank_mse']:.5f}), best step {best['step']}")
         return metrics
 
     if start == 0:

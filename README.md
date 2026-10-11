@@ -55,7 +55,7 @@ The full analysis is in [docs/experiments.md](docs/experiments.md).
 | --- | --- | --- |
 | 1 | Occlusion generator, surprise tuples, ground truth, validation and test sets, PredNet | done |
 | 2.1 to 2.9 | Training, evaluation, prediction figures, the pilot run of PredNet, its ablations (no explicit error units, 3 and 4 layers), the ConvLSTM baseline, the programmed trackers (Kalman filters), the position probe, and the amodal decoder | done |
-| 2.10 | Training sweep of every model | planned |
+| 2.10 | Training sweep of every model | in progress |
 | 3 | Evaluation on the test set: occlusion curves, correction latency, surprise | planned |
 
 The detailed status of every step is in [docs/implementation.md](docs/implementation.md#status).

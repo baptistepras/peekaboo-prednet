@@ -10,12 +10,13 @@ from peekaboo.data.conditions import GeneratorSettings
 from peekaboo.data.dataset import OnTheFlyDataset
 from peekaboo.data.mnist_pool import DigitPool
 from peekaboo.data.render import RenderSettings
+from peekaboo.eval.next_frame import blank_prediction
 from peekaboo.models import build_model
 from peekaboo.paths import CONFIGS_DIR, PROJECT_ROOT
 from peekaboo.train.checkpoint import load_checkpoint, load_model
 from peekaboo.train.losses import next_frame_l1, training_loss
 from peekaboo.train.loop import TrainSettings, format_duration, learning_rate, train, validate
-from peekaboo.train.metrics import read_csv
+from peekaboo.train.metrics import VAL_FIELDS, read_csv
 
 RENDER = RenderSettings.from_config(load_config(CONFIGS_DIR / "data" / "base.yaml"))
 MODEL = {"model": "prednet", "stack_sizes": [3, 4, 8], "layer_loss_weights": "L0"}
@@ -119,6 +120,22 @@ def test_validation_of_a_copy_model_equals_the_copy_baseline(pool: DigitPool, se
     assert metrics["val_loss"] == pytest.approx(0.5 * metrics["val_l1"])  # unweighted: half the L1
     weighted = validate(CopyLastFrame(), val_data, 4, 2, 6, CPU, digit_weight=10.0)
     assert weighted["val_loss"] > metrics["val_loss"] and weighted["val_l1"] == pytest.approx(metrics["val_l1"])
+
+
+class BlankFrame(torch.nn.Module):
+    """A stub model whose prediction of frame t is frame t with its digit erased."""
+
+    def forward(self, frames: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Erase the digit of every frame."""
+        return {"prediction": blank_prediction(frames)}
+
+
+def test_validation_reports_the_blank_frame(pool: DigitPool, settings: GeneratorSettings) -> None:
+    """The blank frame baseline is logged, and a model that never draws the digit scores exactly it."""
+    _, val_data = streams(pool, settings)
+    metrics = validate(BlankFrame(), val_data, 4, 2, 6, CPU)
+    assert set(VAL_FIELDS) == set(metrics) | {"step", "best_step"}
+    assert metrics["val_mse"] == pytest.approx(metrics["blank_mse"]) and metrics["blank_mse"] > 0
 
 
 def test_durations_read_well() -> None:

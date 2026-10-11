@@ -1,0 +1,31 @@
+# Training sweep (step 2.10): PredNet 4 layers, for the depth ablation. Every sweep config has the same settings and
+# seed, and differs only in the model: 15k steps at 0.001 divided by 10 at step 10000, the visible digit pixels weighted
+# by 10 (decision D12), and validation on the whole val_v1 every 500 steps. About 13 h 20 (3.06 s per step and 31
+# validations of about 1 min) on an Apple M5.
+# Paths are relative to the project root.
+name: sweep_prednet4l
+model: configs/models/prednet_4l.yaml
+data: configs/data/base.yaml
+
+train:
+  steps: 15000         # 240,000 new sequences of the training mix
+  batch_size: 16
+  seq_len: 40          # whole sequences, as in the evaluation
+  workers: 4
+  seed: 0              # the same seed for every model: same initialization seed and same training sequences
+  log_every: 100
+
+optimizer:
+  lr: 0.001            # Adam, as in Lotter et al.
+  lr_drop_at: 0.66667  # divided by 10 from step 10000 on: the pilot's sudden change came late, so the high rate lasts
+  lr_drop_factor: 0.1
+  grad_clip: null
+
+loss:
+  digit_weight: 10     # visible digit pixels of the target frames count 10 times in the L1 loss
+
+validation:
+  data: val_v1
+  every: 500           # 31 validations; last.pt is saved at each one
+  sequences: null      # the whole set, 1000 sequences
+  batch_size: 16

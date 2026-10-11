@@ -33,7 +33,7 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.7 | Programmed baselines: digit detector, last seen position, constant velocity Kalman filters with and without walls, oracle | done |
 | 2.8 | Position probe (option B): ridge and 8 bin logistic probes on the pooled states, random initialization control, trackers and bar center as baselines, yellow cross in the figures | done |
 | 2.9 | Amodal decoder (option C): minimal 1 x 1 readout of the whole digit from the states, random initialization control, template baselines, magenta digit in the figures | done |
-| 2.10 | Training sweep | planned |
+| 2.10 | Training sweep: every model with the same settings and seed (15k steps), launched one run at a time with `scripts/sweep.py` to follow and check them | in progress |
 | 3 | Evaluation, probes, figures | planned |
 
 ## Conventions
@@ -46,7 +46,7 @@ How the project works, step by step and module by module. Commands are in [usage
 
 - `configs/data/base.yaml`: generator settings shared by all splits. Frames of 64 x 96 pixels (height x width), sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the bar, 4 after it leaves, and no wall bounce in the 2 frames around entry and exit. Visibility thresholds: occluded at most 2% visible ink, visible at least 95%. Occlusion durations k in {2, 4, 6, 8} at speeds {2, 3, 4}, and k = 12 at speeds {2, 3}. Control bars at least 4 px wide. Training mix 30% control, 60% occlusion, 10% hidden bounce, with k drawn with weights proportional to k. Surprises: 12 px vertical offset, a forward jump of half the hidden frames for "early", speed surprises from 2 to 4 and from 4 to 2 px/frame, and 100 placements of A tried per digit before another digit is drawn. Rendering: red digit, mid gray bar (0.5).
 - `configs/data/val_v1.yaml` and `configs/data/test_v1.yaml`: the validation and test sets (next section).
-- `configs/train/<name>.yaml`: one training run. It points to a model config and a data config, and sets the steps, the batch size, the frames per sequence, the seed, the optimizer (learning rate, optional drop and clipping), and the validation (stored set, interval, number of sequences). `loss.digit_weight` sets the weight of the visible digit pixels in the loss (1 for PredNet's own loss). `configs/train/smoke.yaml` is a one minute check of the whole pipeline. `configs/train/pilot_prednet5l_w10.yaml` is the pilot run of the main model: 10k steps of 16 sequences of 40 frames (160,000 new sequences), digit pixels weighted by 10, Adam at 0.001 divided by 10 halfway as in Lotter et al., validation on the whole `val_v1` every 500 steps. `configs/train/pilot_prednet5l.yaml` is the same run with PredNet's own loss, kept to reproduce the first pilot.
+- `configs/train/<name>.yaml`: one training run. It points to a model config and a data config, and sets the steps, the batch size, the frames per sequence, the seed, the optimizer (learning rate, optional drop and clipping), and the validation (stored set, interval, number of sequences). `loss.digit_weight` sets the weight of the visible digit pixels in the loss (1 for PredNet's own loss). `configs/train/smoke.yaml` is a one minute check of the whole pipeline. `configs/train/pilot_prednet5l_w10.yaml` is the pilot run of the main model: 10k steps of 16 sequences of 40 frames (160,000 new sequences), digit pixels weighted by 10, Adam at 0.001 divided by 10 halfway as in Lotter et al., validation on the whole `val_v1` every 500 steps. `configs/train/pilot_prednet5l.yaml` is the same run with PredNet's own loss, kept to reproduce the first pilot. `configs/train/sweep_<model>.yaml` are the five runs of the training sweep (step 2.10): PredNet 5 layers, 5 layers concat, 4 layers, 3 layers, and the ConvLSTM, with identical settings except the model: seed 0, 15k steps of 16 sequences of 40 frames, digit pixels weighted by 10, Adam at 0.001 divided by 10 at step 10000 (`lr_drop_at: 0.66667`, so that the sudden change seen in the pilot has time to happen before the drop), validation on the whole `val_v1` every 500 steps.
 
 ## Validation and test sets
 
@@ -337,15 +337,15 @@ The ConvLSTM baseline (Shi et al., NeurIPS 2015), written from the paper. It is 
 The training loop, step based. Step s trains on the sequences s x batch to (s + 1) x batch - 1 of the on the fly stream, so every sample is new and a resumed run sees exactly the samples of an uninterrupted one. The learning rate depends only on the step: Adam at `lr`, optionally multiplied by `lr_drop_factor` after a fraction `lr_drop_at` of the steps (Lotter et al. divide it by 10 halfway). Gradient clipping is optional, and the gradient norm is logged at every step.
 
 - **Loss (decision D12).** See `peekaboo/train/losses.py` below: half the mean absolute next frame error, with the visible digit pixels weighted by `loss.digit_weight` (10 in the pilot). Every model returns `prediction` (B, T, C, H, W), where `prediction[:, t]` predicts frame t from the frames before it.
-- **Validation.** On a stored set (frames 1 and later): the training objective (`val_loss`, with the same digit weight), and the plain L1 and squared errors per pixel of the model and of copying the last frame. The best checkpoint is chosen on `val_loss` alone: occlusion metrics never take part in model selection. The plain L1 would be a poor choice, since it prefers a model that does not draw the digit. There is no early stopping: every sample is new, so the validation can only plateau, and every model of a comparison gets the same number of steps.
+- **Validation.** On a stored set (frames 1 and later): the training objective (`val_loss`, with the same digit weight), and the plain L1 and squared errors per pixel of the model, of copying the last frame, and of the blank frame (the true frame with its digit erased, where a model that never draws the digit settles, as the first pilot did). The best checkpoint is chosen on `val_loss` alone: occlusion metrics never take part in model selection. The plain L1 would be a poor choice, since it prefers a model that does not draw the digit. There is no early stopping: every sample is new, so the validation can only plateau, and every model of a comparison gets the same number of steps.
 - `train(run_dir, model, train_data, val_data, settings, run_config, device, resume, stop_at)` writes in the run folder:
 
 | File | Content |
 | --- | --- |
 | `config.yaml` | the training config with its overrides, and the full model and data configs |
 | `train_metrics.csv` | one row per step: loss, gradient norm, learning rate, seconds |
-| `val_metrics.csv` | one row per validation: validation loss, model and copy errors, best step so far |
-| `curves.png` | training loss (raw and smoothed) and validation MSE against copying the last frame |
+| `val_metrics.csv` | one row per validation: validation loss, model, copy, and blank frame errors, best step so far |
+| `curves.png` | training loss (raw and smoothed) and validation MSE against copying the last frame and the blank frame |
 | `last.pt` | checkpoint at the last validation, or where the run stopped; deleted when the run is finished, since it only serves to resume |
 | `best.pt` | checkpoint with the lowest validation loss |
 
@@ -361,6 +361,14 @@ The training objective of every learned model (decision D12): half the mean abso
 - `weighted_pixel_loss(prediction, frames, digit_weight)`, `training_loss(model, out, frames, digit_weight)`, and `next_frame_l1(prediction, frames)`.
 
 This is a deviation from PredNet, made necessary by the sparsity of the digit (see [Experiments, step 2.4](experiments.md#step-24-pilot-training-of-prednet-5-layers)). It changes only the training objective: PredNet's dynamics and its error units, which the surprise measures read, are unchanged.
+
+#### `peekaboo/train/sweep.py`
+
+The training sweep of step 2.10, run one model at a time on one machine. `SWEEP` lists the runs in their order (PredNet 5 layers, 5 layers concat, ConvLSTM, 4 layers, 3 layers: the fast runs first, the 30 h run last), each with its training config and its expected durations on an Apple M5. A run goes through five stages: training, the gate D16 (`eval_next_frame`), the position probes (`fit_probes`), the amodal decoder (`fit_decoder`), and the prediction figures with both readouts (`show_predictions --probe --decoder`, occlusion and hidden bounce). A stage is done when its output exists in the run folder.
+
+- `run_status(run, runs_dir, seed)`: reads a run folder. The state is not started, running (the step log changed in the last 10 minutes), stopped (resumable from `last.pt` or not), or trained (every step done, `best.pt` kept, `last.pt` deleted). It adds the speed, the hours left, the main result of each stage (gate, probe y error and decoder correlation on hidden occlusion frames, with their random initialization controls), and warnings.
+- Warnings: from step 2000 on, a validation MSE less than 30% below the blank frame (the model may have settled on not drawing the digit, as the first pilot did; the weighted pilot was 57% below at step 2000); a validation MSE that still fell by more than 20% over the 2000 steps before the learning rate drop (the sudden change may not have been over before the drop, and is much slower after it); a failed gate; a stopped run.
+- `next_action(statuses)`: the first stage not done, in the order of the runs, with its command; nothing while a run is training. `stage_commands(run, seed, restart)` gives the command of every stage, and `check_commands(run)` the whole chain on 20 steps and a few sequences in `runs/check/`, to check every stage with every model before the long trainings.
 
 #### `peekaboo/train/metrics.py`
 
@@ -543,6 +551,7 @@ peekaboo/           the package
     next_frame.py   next frame scores, SSIM, gate D16
   train/            training
     loop.py         training loop, validation, resume
+    sweep.py        training sweep: runs, stages, state, checks
     losses.py       training objective, digit weighted loss
     metrics.py      CSV logs
     checkpoint.py   save and load checkpoints
@@ -571,6 +580,7 @@ scripts/            command line entry points
   fit_decoder.py        amodal decoder of a run, with its controls
   show_predictions.py   prediction figures of a saved model
   trial_pilots.py       record of the 2.4 trials
+  sweep.py              state of the training sweep and next command
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set
@@ -583,6 +593,7 @@ configs/            one config file per experiment
   train/smoke.yaml  short training run that checks the pipeline
   train/pilot_prednet5l_w10.yaml  pilot run of PredNet 5 layers, weighted loss
   train/pilot_prednet5l.yaml  first pilot, PredNet's own loss (failed)
+  train/sweep_*.yaml  the five runs of the training sweep (step 2.10)
 tests/              unit tests (pytest)
 docs/               documentation
   implementation.md how the code works, module by module
