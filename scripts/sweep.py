@@ -31,7 +31,7 @@ def summary_row(status: RunStatus) -> dict[str, str]:
     if validation and "blank_mse" in validation:
         row["val MSE vs blank"] = f"{percent_below(validation['val_mse'], validation['blank_mse'])} below"
     if status.plateau is not None:
-        row["drop check"] = f"-{100 * status.plateau:.0f}% in 2k"
+        row["drop check"] = f"{-100 * status.plateau:+.0f}% in 2k"  # change of the MSE: negative when it fell
     if status.gate:
         row["gate"] = f"{'PASSED' if status.gate['passed'] else 'FAILED'} {100 * status.gate['mse_reduction']:.0f}%"
     if status.probe:
