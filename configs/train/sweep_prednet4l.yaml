@@ -19,7 +19,8 @@ optimizer:
   lr: 0.001            # Adam, as in Lotter et al.
   lr_drop_at: 0.66667  # divided by 10 from step 10000 on: the pilot's sudden change came late, so the high rate lasts
   lr_drop_factor: 0.1
-  grad_clip: null
+  grad_clip: 1.0       # added after PredNet 4 layers seed 0 exploded (norm 1.3e4 at step 3970); the norm never
+                       # exceeded 0.31 in the runs before (5l, concat, ConvLSTM), so the clip changed nothing there
 
 loss:
   digit_weight: 10     # visible digit pixels of the target frames count 10 times in the L1 loss

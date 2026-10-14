@@ -14,7 +14,7 @@ from peekaboo.models.prednet import count_parameters
 from peekaboo.paths import PROJECT_ROOT
 from peekaboo.train.loop import TrainSettings, learning_rate
 from peekaboo.train.metrics import TRAIN_FIELDS, VAL_FIELDS
-from peekaboo.train.sweep import FIGURES, SWEEP, check_commands, next_action, run_status, stage_commands
+from peekaboo.train.sweep import FIGURES, SWEEP, check_commands, find_run, next_action, run_status, stage_commands
 
 RUN = SWEEP[0]
 
@@ -30,6 +30,7 @@ def test_sweep_configs_differ_only_in_the_model() -> None:
         assert config["name"] == key and (PROJECT_ROOT / config["model"]).exists()
     settings = TrainSettings.from_config(shared[0])
     assert settings.steps == 15000 and settings.digit_weight == 10 and shared[0]["train"]["seed"] == 0
+    assert settings.grad_clip == 1.0
     assert learning_rate(9999, settings) == pytest.approx(1e-3)
     assert learning_rate(10000, settings) == pytest.approx(1e-4)
 
@@ -98,7 +99,8 @@ def test_a_run_goes_through_every_stage(tmp_path: Path) -> None:
 
     eval_dir = run_dir / "eval"
     eval_dir.mkdir()
-    gate = {"passed": True, "mse_reduction": 0.95, "baseline": "blank", "required_reduction": 0.3}
+    gate = {"passed": True, "mse_reduction": 0.95, "model_mse": 0.0001, "blank_mse": 0.002, "baseline": "blank",
+            "required_reduction": 0.3}
     (eval_dir / "next_frame_val_v1.json").write_text(json.dumps({"gate": gate}))
     assert run_status(RUN, tmp_path).next_stage == "probes"
     row = {"occlusion / occluded": {"probe": 0.6, "random_probe": 9.7}}
@@ -125,10 +127,28 @@ def test_warnings_from_the_validation_log(tmp_path: Path) -> None:
     write_training(run_dir, 15000, {0: 0.06, 2000: 0.0006, 8000: 0.0004, 10000: 0.0002, 15000: 0.00015})
     (run_dir / "best.pt").touch()
     (run_dir / "eval").mkdir()
-    gate = {"passed": False, "mse_reduction": 0.1, "baseline": "blank", "required_reduction": 0.3}
+    gate = {"passed": False, "mse_reduction": -0.5, "model_mse": 0.003, "blank_mse": 0.002, "baseline": "blank",
+            "required_reduction": 0.3}
     (run_dir / "eval" / "next_frame_val_v1.json").write_text(json.dumps({"gate": gate}))
     warnings = run_status(RUN, tmp_path).warnings
-    assert any("before the learning rate drop" in w for w in warnings) and any("gate D16 failed" in w for w in warnings)
+    assert any("before the learning rate drop" in w for w in warnings)
+    assert any("gate D16 failed (50% above the blank frame" in w for w in warnings)
+
+    write_training(run_dir, 15000, {0: 0.06, 1000: 0.003, 15000: 0.0031}, blank=0.0015)
+    warning = next(w for w in run_status(RUN, tmp_path).warnings if "blank frame" in w and "validation MSE" in w)
+    assert "107% above the blank frame" in warning and "stopping" not in warning  # a finished run is not stopped
+
+
+def test_a_run_with_its_own_seed(tmp_path: Path) -> None:
+    """A run of the sweep with another seed is trained, read, and evaluated in its own folder."""
+    run = find_run("sweep_prednet4l")
+    assert run.seed == 1 and run.run_dir(tmp_path) == tmp_path / "sweep_prednet4l" / "seed1"
+    commands = stage_commands(run)
+    assert "--config configs/train/sweep_prednet4l.yaml --seed 1 2>&1 | tee -a runs/sweep_prednet4l_seed1.log" in \
+        commands["train"]
+    assert commands["gate"].endswith("--run runs/sweep_prednet4l/seed1")
+    write_training(run.run_dir(tmp_path), 500, {0: 0.06, 500: 0.0012})
+    assert run_status(run, tmp_path).step == 500
 
 
 def test_check_commands_stay_in_their_own_folder() -> None:

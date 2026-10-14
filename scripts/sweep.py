@@ -12,24 +12,20 @@ from pathlib import Path
 import pandas as pd
 
 from peekaboo.paths import RUNS_DIR
-from peekaboo.train.sweep import (HIDDEN, STAGES, SWEEP, RunStatus, check_commands, find_run, next_action,
+from peekaboo.train.sweep import (HIDDEN, STAGES, SWEEP, RunStatus, check_commands, find_run, next_action, relative,
                                   run_status, stage_commands)
-
-
-def percent_below(value: float, reference: float) -> str:
-    """How far below a reference a value is, in percent."""
-    return f"{100 * (1.0 - value / reference):.0f}%"
 
 
 def summary_row(status: RunStatus) -> dict[str, str]:
     """One line of the table: progress, the training checks, and the main result of every stage."""
     validation = status.last_validation
-    row = {"run": status.run.key, "state": status.state, "step": f"{status.step}/{status.steps}",
+    row = {"run": f"{status.run.key}/seed{status.run.seed}", "state": status.state,
+           "step": f"{status.step}/{status.steps}",
            "val MSE vs blank": "", "drop check": "", "gate": "", "probe y err": "", "decoder corr": "",
            "stages done": " ".join(s for s in STAGES if status.done[s]) or "-",
            "hours left": f"{status.hours_left():.1f}"}
     if validation and "blank_mse" in validation:
-        row["val MSE vs blank"] = f"{percent_below(validation['val_mse'], validation['blank_mse'])} below"
+        row["val MSE vs blank"] = relative(validation["val_mse"], validation["blank_mse"])
     if status.plateau is not None:
         row["drop check"] = f"{-100 * status.plateau:+.0f}% in 2k"  # change of the MSE: negative when it fell
     if status.gate:
@@ -44,7 +40,6 @@ def summary_row(status: RunStatus) -> dict[str, str]:
 def main() -> int:
     """Print the state of every run, the warnings, and the next command; or the commands of one run."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--runs", type=Path, default=RUNS_DIR, help="folder of the runs")
     parser.add_argument("--commands", metavar="RUN", default=None,
                         help="print every command of this run (a key such as sweep_prednet5l), in order")
@@ -59,13 +54,13 @@ def main() -> int:
         return 0
     if args.commands:
         run = find_run(args.commands)
-        for stage, command in stage_commands(run, args.seed).items():
+        for stage, command in stage_commands(run).items():
             print(f"# {stage}\n{command}\n")
         return 0
 
-    statuses = [run_status(run, args.runs, args.seed) for run in SWEEP]
+    statuses = [run_status(run, args.runs) for run in SWEEP]
     table = pd.DataFrame([summary_row(s) for s in statuses])
-    print(f"training sweep, seed {args.seed} (probe y error in px and decoder correlation on hidden frames, "
+    print(f"training sweep (probe y error in px and decoder correlation on hidden frames, "
           f"{HIDDEN}; drop check: fall of the validation MSE over the 2000 steps before the learning rate drop)\n")
     print(table.to_string(index=False))
     left = sum(s.hours_left() for s in statuses)
@@ -75,7 +70,7 @@ def main() -> int:
         print("\nwarnings:")
         for key, warning in warnings:
             print(f"  {key}: {warning}")
-    sentence, command = next_action(statuses, args.seed)
+    sentence, command = next_action(statuses)
     print(f"\nnext: {sentence}")
     if command:
         print(command)
