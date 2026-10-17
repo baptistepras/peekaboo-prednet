@@ -6,15 +6,18 @@ import os
 import time
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from peekaboo.config import load_config
+from peekaboo.eval.compare import ROWS, plot_since_onset, plot_validation, since_onset_curve, summary_table
 from peekaboo.models import build_model
 from peekaboo.models.prednet import count_parameters
 from peekaboo.paths import PROJECT_ROOT
 from peekaboo.train.loop import TrainSettings, learning_rate
 from peekaboo.train.metrics import TRAIN_FIELDS, VAL_FIELDS
-from peekaboo.train.sweep import FIGURES, SWEEP, check_commands, find_run, next_action, run_status, stage_commands
+from peekaboo.train.sweep import (FAILED, FIGURES, SWEEP, check_commands, find_run, next_action, run_status,
+                                  stage_commands)
 
 RUN = SWEEP[0]
 
@@ -157,3 +160,51 @@ def test_check_commands_stay_in_their_own_folder() -> None:
     assert "--out runs/check" in command and f"--run runs/check/{RUN.key}/seed0" in command
     for script in ("train", "eval_next_frame", "fit_probes", "fit_decoder", "show_predictions"):
         assert f"scripts.{script} " in command
+
+
+def write_reports(run_dir: Path, error: float, corr: float) -> None:
+    """Fake reports of the gate, the probes, and the decoder, as their scripts write them."""
+    eval_dir = run_dir / "eval"
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    gate = {"passed": True, "mse_reduction": 0.95, "model_mse": 0.0001, "blank_mse": 0.002}
+    (eval_dir / "next_frame_val_v1.json").write_text(json.dumps({"gate": gate}))
+    errors = {key: {"probe": error, "random_probe": 9.0} for key in ROWS.values()}
+    probe = {"probes": {"model": {"features": 4224}}, "error_y": errors, "error_x": errors,
+             "p_true_bin": {ROWS["occlusion, hidden"]: {"probe_p_bin_y": 0.8}}}
+    (eval_dir / "probe_val_v1.json").write_text(json.dumps(probe))
+    scores = {key: {"decoder": corr, "random_decoder": 0.15} for key in ROWS.values()}
+    (eval_dir / "amodal_val_v1.json").write_text(json.dumps({"corr": scores, "iou": scores}))
+
+
+def frame_table(**columns: float) -> pd.DataFrame:
+    """A per frame table of one sequence: frames 0 to 39, onset at frame 20, analysis window from frame 15 to 35."""
+    t = pd.Series(range(40))
+    return pd.DataFrame({"condition": "occlusion", "in_window": t.between(15, 35), "since_onset": t - 20,
+                         **{name: value + 0.01 * t for name, value in columns.items()}})
+
+
+def test_comparison_of_the_sweep(tmp_path: Path) -> None:
+    """The comparison reads every run's reports into one row per model, a failed run without its evaluation keeps
+    its training numbers, the curves keep only the analysis window, and both figures are saved."""
+    for i, run in enumerate(SWEEP):
+        write_training(run.run_dir(tmp_path), 10, {0: 0.06, 5: 0.001 * (i + 1), 10: 0.002})
+        write_reports(run.run_dir(tmp_path), error=0.5 + i, corr=0.7)
+    failed = FAILED[0].run_dir(tmp_path)
+    write_training(failed, 10, {0: 0.06, 10: 0.0015})
+    table = summary_table(list(SWEEP) + list(FAILED), tmp_path).set_index("run")
+    first = table.loc[f"{SWEEP[1].key}/seed{SWEEP[1].seed}"]
+    assert first["probe y, occlusion, hidden"] == 1.5 and first["decoder corr, hidden bounce, hidden"] == 0.7
+    assert first["gate"] == 0.95 and first["probe features"] == 4224 and first["random probe y, occlusion, hidden"] == 9
+    assert first["val MSE"] == 0.002 and first["best step"] == 10  # the validation of best.pt
+    assert pd.isna(table.loc[f"{FAILED[0].key}/seed{FAILED[0].seed}"]["gate"])
+
+    probe = frame_table(probe_err_y=1.0, probe_err_x=2.0, kalman_err_y=3.0, kalman_err_x=4.0)
+    decoder = frame_table(decoder_corr=0.5, template_kalman_corr=0.6)
+    curve = since_onset_curve(probe, "probe_err_y", "occlusion")
+    assert list(curve.index) == list(range(-3, 16)) and curve[0] == pytest.approx(1.2)
+    assert since_onset_curve(probe, "probe_err_y", "hidden_bounce").empty
+    tables = {run.label: (probe, decoder) for run in SWEEP}
+    assert plot_since_onset(tables, tmp_path / "since_onset.png").stat().st_size > 0
+    path = plot_validation({run.label: run.run_dir(tmp_path) for run in SWEEP}, tmp_path / "validation.png",
+                           failed={FAILED[0].label: failed})
+    assert path.stat().st_size > 0

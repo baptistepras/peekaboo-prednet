@@ -33,7 +33,7 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.7 | Programmed baselines: digit detector, last seen position, constant velocity Kalman filters with and without walls, oracle | done |
 | 2.8 | Position probe (option B): ridge and 8 bin logistic probes on the pooled states, random initialization control, trackers and bar center as baselines, yellow cross in the figures | done |
 | 2.9 | Amodal decoder (option C): minimal 1 x 1 readout of the whole digit from the states, random initialization control, template baselines, magenta digit in the figures | done |
-| 2.10 | Training sweep: every model with the same settings and seed (15k steps), launched one run at a time with `scripts/sweep.py` to follow and check them | in progress |
+| 2.10 | Training sweep: every model with the same settings and seed (15k steps), launched one run at a time with `scripts/sweep.py`, and compared with `scripts/compare_sweep.py`: every PredNet passes the gate and keeps the hidden digit, the ConvLSTM does not draw it (see [Experiments, step 2.10](experiments.md#step-210-training-sweep)) | done |
 | 3 | Evaluation, probes, figures | planned |
 
 ## Conventions
@@ -46,7 +46,7 @@ How the project works, step by step and module by module. Commands are in [usage
 
 - `configs/data/base.yaml`: generator settings shared by all splits. Frames of 64 x 96 pixels (height x width), sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the bar, 4 after it leaves, and no wall bounce in the 2 frames around entry and exit. Visibility thresholds: occluded at most 2% visible ink, visible at least 95%. Occlusion durations k in {2, 4, 6, 8} at speeds {2, 3, 4}, and k = 12 at speeds {2, 3}. Control bars at least 4 px wide. Training mix 30% control, 60% occlusion, 10% hidden bounce, with k drawn with weights proportional to k. Surprises: 12 px vertical offset, a forward jump of half the hidden frames for "early", speed surprises from 2 to 4 and from 4 to 2 px/frame, and 100 placements of A tried per digit before another digit is drawn. Rendering: red digit, mid gray bar (0.5).
 - `configs/data/val_v1.yaml` and `configs/data/test_v1.yaml`: the validation and test sets (next section).
-- `configs/train/<name>.yaml`: one training run. It points to a model config and a data config, and sets the steps, the batch size, the frames per sequence, the seed, the optimizer (learning rate, optional drop and clipping), and the validation (stored set, interval, number of sequences). `loss.digit_weight` sets the weight of the visible digit pixels in the loss (1 for PredNet's own loss). `configs/train/smoke.yaml` is a one minute check of the whole pipeline. `configs/train/pilot_prednet5l_w10.yaml` is the pilot run of the main model: 10k steps of 16 sequences of 40 frames (160,000 new sequences), digit pixels weighted by 10, Adam at 0.001 divided by 10 halfway as in Lotter et al., validation on the whole `val_v1` every 500 steps. `configs/train/pilot_prednet5l.yaml` is the same run with PredNet's own loss, kept to reproduce the first pilot. `configs/train/sweep_<model>.yaml` are the five runs of the training sweep (step 2.10): PredNet 5 layers, 5 layers concat, 4 layers, 3 layers, and the ConvLSTM, with identical settings except the model: seed 0, 15k steps of 16 sequences of 40 frames, digit pixels weighted by 10, Adam at 0.001 divided by 10 at step 10000 (`lr_drop_at: 0.66667`, so that the sudden change seen in the pilot has time to happen before the drop), gradient norm clipped at 1.0, validation on the whole `val_v1` every 500 steps. The clipping was added after PredNet 4 layers with seed 0 diverged (gradient norm 1.3e4 at step 3970); the gradient norm never exceeded 0.31 in the three runs trained before (5 layers, concat, ConvLSTM), so the clip never acted there and their results are those of the current configs.
+- `configs/train/<name>.yaml`: one training run. It points to a model config and a data config, and sets the steps, the batch size, the frames per sequence, the seed, the optimizer (learning rate, optional drop and clipping), and the validation (stored set, interval, number of sequences). `loss.digit_weight` sets the weight of the visible digit pixels in the loss (1 for PredNet's own loss). `configs/train/smoke.yaml` is a one minute check of the whole pipeline. `configs/train/pilot_prednet5l_w10.yaml` is the pilot run of the main model: 10k steps of 16 sequences of 40 frames (160,000 new sequences), digit pixels weighted by 10, Adam at 0.001 divided by 10 halfway as in Lotter et al., validation on the whole `val_v1` every 500 steps. `configs/train/pilot_prednet5l.yaml` is the same run with PredNet's own loss, kept to reproduce the first pilot. `configs/train/sweep_<model>.yaml` are the five runs of the training sweep (step 2.10): PredNet 5 layers, 5 layers concat, 4 layers, 3 layers, and the ConvLSTM, with identical settings except the model: seed 0, 15k steps of 16 sequences of 40 frames, digit pixels weighted by 10, Adam at 0.001 divided by 10 at step 10000 (`lr_drop_at: 0.66667`, so that the sudden change seen in the pilot has time to happen before the drop), gradient norm clipped at 1.0, validation on the whole `val_v1` every 500 steps. The clipping was added after PredNet 4 layers with seed 0 diverged (gradient norm 1.3e4 at step 3970); the gradient norm never exceeded 0.31 in the three runs trained before (5 layers, concat, ConvLSTM), so the clip never acted there and their results are those of the current configs (their saved `config.yaml` still says `grad_clip: null`). In the two runs trained with it, it acted once, at step 6705 of PredNet 3 layers (norm 1.77).
 
 ## Validation and test sets
 
@@ -364,7 +364,7 @@ This is a deviation from PredNet, made necessary by the sparsity of the digit (s
 
 #### `peekaboo/train/sweep.py`
 
-The training sweep of step 2.10, run one model at a time on one machine. `SWEEP` lists the runs in their order (PredNet 5 layers, 5 layers concat, ConvLSTM, 4 layers, 3 layers: the fast runs first, the 30 h run last), each with its training config, its seed, and its expected durations on an Apple M5. Every run uses seed 0 except PredNet 4 layers, whose seed 0 run failed (it stayed on the blank frame from step 100 on, then diverged) and is kept in `runs/sweep_prednet4l/seed0/` as a record; its run of record uses seed 1. A run goes through five stages: training, the gate D16 (`eval_next_frame`), the position probes (`fit_probes`), the amodal decoder (`fit_decoder`), and the prediction figures with both readouts (`show_predictions --probe --decoder`, occlusion and hidden bounce). A stage is done when its output exists in the run folder.
+The training sweep of step 2.10, run one model at a time on one machine. `SWEEP` lists the runs in their order (PredNet 5 layers, 5 layers concat, ConvLSTM, 4 layers, 3 layers: the fast runs first, the 30 h run last), each with its training config, its seed, and its expected durations on an Apple M5. Every run uses seed 0 except PredNet 4 layers, whose seed 0 run failed (it stayed on the blank frame from step 100 on, then diverged) and is kept in `runs/sweep_prednet4l/seed0/` as a record; its run of record uses seed 1. `FAILED` lists the failed runs kept as records, which the comparison draws dotted. A run goes through five stages: training, the gate D16 (`eval_next_frame`), the position probes (`fit_probes`), the amodal decoder (`fit_decoder`), and the prediction figures with both readouts (`show_predictions --probe --decoder`, occlusion and hidden bounce). A stage is done when its output exists in the run folder.
 
 - `run_status(run, runs_dir)`: reads a run folder. The state is not started, running (the step log changed in the last 10 minutes), stopped (resumable from `last.pt` or not), or trained (every step done, `best.pt` kept, `last.pt` deleted). It adds the speed, the hours left, the main result of each stage (gate, probe y error and decoder correlation on hidden occlusion frames, with their random initialization controls), and warnings.
 - Warnings: from step 1000 on, a validation MSE less than 25% below the blank frame (the model may have settled on not drawing the digit, as the first pilot did; the 5 layer and concat runs were about 40% below at step 1000); a validation MSE that still fell by more than 20% over the 2000 steps before the learning rate drop (the sudden change may not have been over before the drop, and is much slower after it); a failed gate; a stopped run.
@@ -476,6 +476,15 @@ Next frame quality of a model against two baselines:
 - `summarize(table, by)`: mean scores overall or per group, and the MSE reductions 1 - model / baseline against each baseline.
 - `gate(table)`: decision D16. The model's MSE on the visible moving frames must be at least 30% below the better of the two baselines before any occlusion analysis: the model must draw the digit, and in the right place. A model close to either baseline has not learned the motion. The scores per speed show whether PredNet falls back to copying on fast digits, as Rane et al. observed.
 
+#### `peekaboo/eval/compare.py`
+
+Comparison of the models of the training sweep, read from the outputs every run already has: its validation log and the reports of the gate, the probes, and the decoder. Nothing is recomputed.
+
+- `summary_row(run, run_dir)` and `summary_table(runs, runs_dir)`: one row per run: the best step with its validation loss and MSE, the gate reduction and the MSE on visible moving frames, the probe errors on y and x and the decoder correlation and IoU on hidden frames of occlusion and hidden bounce sequences and on visible frames of occlusion sequences, the random initialization controls, the probability of the true bin, and the number of probe features. A run without its evaluation keeps its training numbers.
+- `since_onset_curve(table, column, condition)`: the mean of a per frame column of a probe or decoder table against the frames since the onset, on the analysis window of one condition.
+- `plot_since_onset(tables, path)`: the probe errors on y and x and the decoder correlation against the frames since the onset, one line per model, with the constant velocity references (the Kalman filter, and the template it moves).
+- `plot_validation(runs, path, failed)`: the validation MSE of every run against the training step, with the blank frame, the failed runs dotted.
+
 ### Visualization
 
 #### `peekaboo/viz/space_time.py`
@@ -549,6 +558,7 @@ peekaboo/           the package
     amodal.py       amodal decoder, templates, scores
   eval/             evaluation
     next_frame.py   next frame scores, SSIM, gate D16
+    compare.py      comparison of the sweep models
   train/            training
     loop.py         training loop, validation, resume
     sweep.py        training sweep: runs, stages, state, checks
@@ -581,6 +591,7 @@ scripts/            command line entry points
   show_predictions.py   prediction figures of a saved model
   trial_pilots.py       record of the 2.4 trials
   sweep.py              state of the training sweep and next command
+  compare_sweep.py      comparison of the sweep models
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set
@@ -600,6 +611,7 @@ docs/               documentation
   usage.md          setup and every command
   experiments.md    training experiments and their results
 runs/pilot_prednet5l_w10/  the reference pilot run (step 2.4)
+runs/sweep_summary/        the comparison of the sweep models (step 2.10)
 README.md           project page
 LICENSE             MIT license of the project's code
 environment.yml     conda environment "peekaboo"
@@ -607,4 +619,4 @@ pyproject.toml      pytest settings (nothing to install)
 THIRD_PARTY_NOTICES.md  references and licenses of the third party code
 ```
 
-These folders are created by the scripts and are not tracked by git: `data/`, `runs/`, `figures/`. The one exception is the reference pilot run `runs/pilot_prednet5l_w10/` (see [Experiments, step 2.4](experiments.md#step-24-pilot-training-of-prednet-5-layers)). The local references `papers/` and `third_party/` are not tracked either. The full list is in [`.gitignore`](../.gitignore).
+These folders are created by the scripts and are not tracked by git: `data/`, `runs/`, `figures/`. The exceptions are the reference pilot run `runs/pilot_prednet5l_w10/` (see [Experiments, step 2.4](experiments.md#step-24-pilot-training-of-prednet-5-layers)) and the comparison of the sweep models `runs/sweep_summary/` (see [Experiments, step 2.10](experiments.md#step-210-training-sweep)); the sweep runs themselves stay local. The local references `papers/` and `third_party/` are not tracked either. The full list is in [`.gitignore`](../.gitignore).

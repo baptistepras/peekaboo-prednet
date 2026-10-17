@@ -104,3 +104,68 @@ The run is kept in git as the reference result of step 2.4: `runs/pilot_prednet5
 <sub>An occlusion of `val_v1` (k = 12, 3 px/frame) with both readouts on the predicted row: the yellow cross (probe) and the magenta digit (decoder) move under the bar with the true digit (cyan outline) for 12 fully hidden frames.</sub>
 
 **Limits.** One seed and the validation set, as for the probe. The decoder is minimal on purpose, so its scores are a lower bound of what the state holds; a larger kernel (`--kernel`) would read more, but could also draw shapes by itself. The scores per k, and per layer, are left to Phase 3.
+
+## Step 2.10: training sweep
+
+**Question.** Does the pilot's result hold for other architectures? The sweep trains PredNet with 3, 4, and 5 layers (depth), PredNet 5 layers without explicit error units (concat: the layers pass on their states instead of their errors), and a ConvLSTM without any predictive coding structure, all at about 3.1 million parameters (within 10% of each other).
+
+**Setup.** Five configs identical except for the model (`configs/train/sweep_*.yaml`): seed 0, 15k steps of 16 sequences of 40 frames, visible digit pixels weighted by 10, Adam at 0.001 divided by 10 at step 10000 (so that the sudden change of the pilot has time to happen before the drop), gradient norm clipped at 1.0, validation on the whole `val_v1` every 500 steps. One run at a time on an Apple M5, followed with `scripts/sweep.py`, each followed by the gate D16, the position probes, the amodal decoder, and the figures. Training took about 87 h: 7.4 h for 5 layers, 7.6 h for concat, 14.7 h for the ConvLSTM, 13.8 h for 4 layers (plus 14.0 h for its failed seed 0 run), and 29.1 h for 3 layers. The tables below come from `scripts/compare_sweep.py` (`runs/sweep_summary/summary.csv`).
+
+**PredNet 4 layers with seed 0 failed, and was rerun with seed 1.** From step 100 on it stayed on the blank frame (training loss 0.0110 against 0.0087 for 5 layers), while its gradient norm shrank to 0.014. At steps 3967 to 3973 the gradient exploded (norms 3.6, then 835, then 1.3e4; there was no clipping then), and the predictions stayed black for 10k steps before a partial recovery. Its best checkpoint is the blank model of step 3500 (gate 0%, probe as at random initialization). The run is kept in `runs/sweep_prednet4l/seed0/` as a record. Gradient clipping at 1.0 was then added to every sweep config: the norm never exceeded 0.31 in the three runs already trained (5 layers, concat, ConvLSTM), so the clip would not have changed them, and they were not retrained (their saved `config.yaml` says `grad_clip: null`). PredNet 4 layers was rerun with seed 1, and the 4 and 3 layer runs were checked at step 1000: their validation MSE was 67% and 77% below the blank frame (at least 25% required).
+
+**Two later loss spikes recovered by themselves.** In PredNet 4 layers seed 1, the training loss rose from 0.0014 to 0.008 between steps 9300 and 9313 and the validation MSE doubled at step 9500, back to its level by step 10000. In PredNet 3 layers, the same happened at step 6705, back by step 7500. In the 4 layer run the gradient norm stayed below 0.25 during the spike, and the clip never acted in the whole run (largest norm 0.73, at step 27); in the 3 layer run it acted once, at the spike (norm 1.77). These are not gradient explosions. The likely cause is Adam itself: when the gradients become very small, its normalized steps stay large. Both best checkpoints are from step 15000, after the recovery.
+
+![Validation MSE of the sweep runs](../runs/sweep_summary/validation.png)
+
+<sub>Validation MSE on `val_v1` of every sweep run against the training step, with the blank frame (dashed red) and the failed PredNet 4 layers seed 0 run (dotted).</sub>
+
+Only the 5 layer model shows the pilot's sudden change (its validation MSE halves between steps 4000 and 4500). The 4 and 3 layer models get there smoothly, and faster: they reach the same level by step 3500.
+
+**Next frame prediction: every PredNet passes the gate by far, the ConvLSTM barely.** Best checkpoints (step 15000, except the failed run), validation set:
+
+| Model | Validation loss | Validation MSE (all frames) | Gate: below the blank frame (visible moving frames) | Gate at k = 12 |
+| --- | --- | --- | --- | --- |
+| PredNet 5 layers | 0.00141 | 0.00010 | 97% | 97% |
+| PredNet 4 layers (seed 1) | 0.00119 | 0.00009 | 98% | 98% |
+| PredNet 3 layers | **0.00095** | **0.00008** | **99%** | **99%** |
+| PredNet 5 layers, concat | 0.00161 | 0.00040 | 85% | 74% |
+| ConvLSTM | 0.00282 | 0.00144 | 42% | -1% |
+| PredNet 4 layers, seed 0 (failed, step 3500) | 0.00988 | 0.00148 | 0% | 0% |
+| blank frame | | 0.00148 | | |
+
+- The three PredNet depths are within 3% of each other on the gate, at every speed, in every condition, and for every k. The shallower the model, the lower the loss: 3 layers predict the frames best, but take about 4 times longer to train than 5 layers (7.0 against 1.8 s per step).
+- The 5 layer run follows the pilot (same seed and settings until the pilot's drop at step 5000) and was flat over the 2000 steps before its drop. The concat run never made the pilot's sudden change: its validation MSE stayed 4 times higher, flat from step 8500.
+- The concat model draws the digit well in control sequences (94% below the blank frame) but less well in sequences with a crossing, and the longer the occlusion, the worse (90% at k = 2, 74% at k = 12). The visible frames of these sequences include those after the reappearance: without explicit errors, PredNet seems slower to pick the digit up again.
+- The ConvLSTM barely leaves the blank frame (validation MSE 3% below it). It passes the gate overall only through the control sequences (79% below the blank frame); with a crossing it is 15% below in occlusion sequences, and no better than the blank frame at k = 12 (-1%). It draws a moving digit, but loses it once it has gone behind the bar.
+
+**Readouts: every PredNet keeps the hidden digit, the ConvLSTM does not.** Analysis windows of `val_v1`, fully hidden frames unless marked visible; errors in px:
+
+| Model | Probe y, occlusion | Probe y, visible | Probe x, occlusion | Probe x, hidden bounce | True y bin probability | Decoder correlation, occlusion | Decoder IoU, occlusion | Decoder correlation, hidden bounce |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers | **0.64** | **0.74** | **0.64** | **1.20** | **0.88** | 0.75 | 0.45 | 0.72 |
+| PredNet 4 layers (seed 1) | 0.88 | 0.90 | 0.78 | 2.41 | 0.84 | **0.77** | **0.47** | **0.75** |
+| PredNet 3 layers | 1.54 | 1.20 | 1.40 | 3.23 | 0.69 | 0.76 | 0.41 | 0.73 |
+| PredNet 5 layers, concat | 0.76 | 0.80 | 0.65 | 1.67 | 0.87 | 0.72 | 0.42 | 0.69 |
+| ConvLSTM | 6.47 | 2.48 | 3.38 | 5.87 | 0.41 | 0.22 | 0.00 | 0.25 |
+| same model at random initialization | 8.9 to 10.2 | | | | 0.25 to 0.27 | 0.14 to 0.17 | 0.00 | 0.19 to 0.21 |
+| last seen position | 8.88 | | 25.79 | 19.67 | | | | |
+| Kalman, constant velocity (and the template it moves) | 3.87 | | 0.12 | 6.68 | | 0.81 | 0.73 | 0.55 |
+
+- **The pilot's result holds for every PredNet.** With 3, 4, or 5 layers, with or without explicit errors, the probe finds the hidden digit within 0.6 to 1.5 px in y, better than the constant velocity filter (3.9 px), and follows a hidden bounce (1.2 to 3.2 px in x, against 6.7 px for the filter and 19.7 px for the last seen position). The decoder reads a well placed hidden digit (correlation 0.72 to 0.77) and beats the template moved at constant velocity after a hidden bounce (0.69 to 0.75 against 0.55). At random initialization, none of them holds anything under the bar.
+- **Depth trades pixels for position.** Fewer layers predict the frames better, but the position is less linearly readable: 0.64, 0.88, then 1.54 px in y for 5, 4, and 3 layers. Part of it is the readout: the shallower models have fewer pooled features (5,760, 4,224, and 3,168), and their error on visible frames grows too (0.74, 0.90, 1.20 px). But hiding the digit costs the 3 layer model more: its hidden error is 1.28 times its visible error, against 0.86 and 0.98 for 5 and 4 layers. The decoder does not change with depth (0.75 to 0.77).
+- **Explicit errors help the prediction more than the memory.** The concat model's state keeps the hidden digit almost as well as the 5 layer PredNet (0.76 against 0.64 px; 0.72 against 0.75 for the decoder), although it predicts the frames 4 times worse: the hidden digit is in its state, but it is slower to draw it again after the reappearance.
+- **The ConvLSTM does not track the hidden digit.** Its probe reads the visible digit at 2.5 px but the hidden one at 6.5 px, between the constant velocity filter and random initialization, and its decoder finds nothing under the bar (IoU 0.00, correlation 0.22 against 0.17 at random initialization). Its states are all at 16 x 24 (4 x 4 patches), so its readouts are coarser than PredNet's, whose first layer is at full resolution; the contrast between its own visible and hidden frames does not depend on that. With one seed and 15k steps, this shows that it did not learn to track with this budget, not that it cannot.
+
+![Readouts of the sweep models against the frames since the onset](../runs/sweep_summary/since_onset.png)
+
+<sub>Probe error on y (top) and x (middle) and decoder correlation (bottom) against the frames since the onset of the occlusion, for occlusion (left) and hidden bounce (right) sequences of `val_v1`, one line per model, with the constant velocity Kalman filter and the template it moves (dashed gray). The later frames mix values of k: for short occlusions the digit is already reappearing there.</sub>
+
+- Every PredNet stays flat over 15 hidden frames, in y and through hidden bounces, while the constant velocity filter drifts (12 px in y, 37 px in x after a hidden bounce). The x error of the 4 and 3 layer models grows slowly in occlusions (from 0.7 to 1.3 px and from 1.2 to 1.8 px), that of the 5 layer model much less.
+- The PredNet decoders lose a little at the onset and stay near 0.75; the template moved at constant velocity starts higher but falls below them about 6 frames after the onset in occlusions, and down to 0.1 after hidden bounces.
+- The ConvLSTM's error grows from the onset (from 2.6 to 7.7 px in y after 6 frames) and its decoder falls to 0.2: it forgets the digit within a few frames. Its later recovery comes from the digits that already reappear.
+
+**Limits.** One seed per model (seed 1 for 4 layers), and the validation set: differences of a few tenths of a pixel or a few hundredths of correlation between the PredNets are not tested, and one 4 layer seed out of two failed to learn. The ConvLSTM's failure may depend on its budget. Phase 3 evaluates every model on `test_v1`: occlusion curves per k, correction after the reappearance, and surprise.
+
+**Reference model.** PredNet 5 layers stays the reference model, shown in the README: it has the most precise readouts (best probe in every column, decoder within 0.03 of the best), it is the fastest to train (7.4 h, against 13.8 h for 4 layers and 29.1 h for 3 layers), it trained without incident with the first seed tried, and it is the architecture of Lotter et al. whose top layer sees the whole frame. The 3 layer model predicts the frames best, but the occlusion questions are about what the state holds, not about the pixels.
+
+**Decisions.** The five models go to Phase 3 as trained here, with PredNet 4 layers seed 1 as its run of record. Gradient clipping at 1.0 stays in the configs; if more seeds are trained, a learning rate warmup or a larger Adam epsilon would address the spikes. The runs stay local (about 38 MB per checkpoint); the comparison is kept in git in `runs/sweep_summary/`.

@@ -3,10 +3,10 @@
 Controlled occlusion benchmark and analysis of PredNet: tracking through occlusion, reappearance, and surprise.
 
 <p align="center">
-  <img src="runs/pilot_prednet5l_w10/seed0/predictions_probe/occlusion.gif" alt="PredNet predictions on occlusion sequences, with the hidden digit read from its internal state" width="49%">
-  <img src="runs/pilot_prednet5l_w10/seed0/predictions_probe/hidden_bounce.gif" alt="PredNet predictions on hidden bounce sequences, with the hidden digit read from its internal state" width="49%">
+  <img src="runs/sweep_summary/sweep_prednet5l_occlusion.gif" alt="PredNet predictions on occlusion sequences, with the hidden digit read from its internal state" width="49%">
+  <img src="runs/sweep_summary/sweep_prednet5l_hidden_bounce.gif" alt="PredNet predictions on hidden bounce sequences, with the hidden digit read from its internal state" width="49%">
 </p>
-<p align="center"><sub>Pilot PredNet on validation sequences: occlusion (left) and hidden bounce (right). For each sequence: the true frame (hidden ink in cyan); the prediction made before the frame arrives, with the true digit outlined, and what is read in the model's internal state, the position (yellow cross) and the digit itself (magenta); the prediction error.</sub></p>
+<p align="center"><sub>PredNet 5 layers, the reference model of the training sweep, on validation sequences: occlusion (left) and hidden bounce (right). For each sequence: the true frame (hidden ink in cyan); the prediction made before the frame arrives, with the true digit outlined, and what is read in the model's internal state, the position (yellow cross) and the digit itself (magenta); the prediction error.</sub></p>
 
 A digit moves behind an occluder and reappears, as expected or in a surprising way. We measure what a predictive coding video model (PredNet) predicts during and after the occlusion, what its internal state still encodes about the hidden object, and how strongly its prediction errors react to surprising reappearances. The project provides:
 
@@ -47,6 +47,19 @@ With its own loss, PredNet learns the bar and the background perfectly but never
 
 A minimal decoder (one weight per state channel) also reads the hidden digit itself from the states: a blurred but well placed digit under the bar (correlation 0.74 with the true hidden digit, against 0.88 when visible and 0.16 for an untrained PredNet), which follows the digit through a hidden bounce.
 
+**It holds across PredNet variants, not for the ConvLSTM.** The training sweep trains every model with the same settings (15k steps, about 3.1 million parameters each). On fully hidden frames of occlusion sequences of the validation set:
+
+| Model | Gate D16: below the blank frame | Probe error on y, hidden | Decoder correlation, hidden |
+| --- | --- | --- | --- |
+| PredNet 5 layers | 97% | **0.64 px** | 0.75 |
+| PredNet 4 layers | 98% | 0.88 px | **0.77** |
+| PredNet 3 layers | **99%** | 1.54 px | 0.76 |
+| PredNet 5 layers, without explicit error units | 85% | 0.76 px | 0.72 |
+| ConvLSTM | 42% | 6.47 px | 0.22 |
+| constant velocity Kalman filter (and the template it moves) | | 3.87 px | 0.81 |
+
+Every PredNet keeps the hidden digit's position and shape in its state, and follows it through a bounce off a wall while hidden, where the Kalman filter goes the wrong way. Shallower PredNets predict the frames better but hold the position less precisely. The ConvLSTM, with the same budget, loses the digit once it goes behind the bar.
+
 The full analysis is in [docs/experiments.md](docs/experiments.md).
 
 ## Status
@@ -55,7 +68,7 @@ The full analysis is in [docs/experiments.md](docs/experiments.md).
 | --- | --- | --- |
 | 1 | Occlusion generator, surprise tuples, ground truth, validation and test sets, PredNet | done |
 | 2.1 to 2.9 | Training, evaluation, prediction figures, the pilot run of PredNet, its ablations (no explicit error units, 3 and 4 layers), the ConvLSTM baseline, the programmed trackers (Kalman filters), the position probe, and the amodal decoder | done |
-| 2.10 | Training sweep of every model | in progress |
+| 2.10 | Training sweep of every model: PredNet with 3, 4, and 5 layers, without explicit error units, and the ConvLSTM | done |
 | 3 | Evaluation on the test set: occlusion curves, correction latency, surprise | planned |
 
 The detailed status of every step is in [docs/implementation.md](docs/implementation.md#status).
@@ -84,7 +97,7 @@ scripts/    command line entry points
 configs/    one config file per dataset, model, and training run
 tests/      unit tests (pytest)
 docs/       implementation, usage, and experiments
-runs/       the reference pilot run (other runs, data, and figures stay local)
+runs/       the reference pilot run and the sweep comparison (other runs, data, and figures stay local)
 ```
 
 The full tree is in [docs/implementation.md](docs/implementation.md#repository-layout).

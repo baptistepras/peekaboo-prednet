@@ -63,6 +63,7 @@ SWEEP = (
     SweepRun("sweep_prednet4l", "PredNet 4 layers", 13.3, 35, seed=1),
     SweepRun("sweep_prednet3l", "PredNet 3 layers", 30.0, 60),
 )
+FAILED = (SweepRun("sweep_prednet4l", "PredNet 4 layers, seed 0 (failed)", 13.3, 35),)  # records, not in the sweep
 
 
 def find_run(key: str) -> SweepRun:
