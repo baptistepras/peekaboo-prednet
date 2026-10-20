@@ -34,7 +34,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.8 | Position probe (option B): ridge and 8 bin logistic probes on the pooled states, random initialization control, trackers and bar center as baselines, yellow cross in the figures | done |
 | 2.9 | Amodal decoder (option C): minimal 1 x 1 readout of the whole digit from the states, random initialization control, template baselines, magenta digit in the figures | done |
 | 2.10 | Training sweep: every model with the same settings and seed (15k steps), launched one run at a time with `scripts/sweep.py`, and compared with `scripts/compare_sweep.py`: every PredNet passes the gate and keeps the hidden digit, the ConvLSTM does not draw it (see [Experiments, step 2.10](experiments.md#step-210-training-sweep)) | done |
-| 3 | Evaluation, probes, figures | planned |
+| 3.1 | Development set `dev_v1` and the extraction pass: each model runs once over a set, everything the analyses need saved per frame | in progress |
+| 3.2 to 3.8 | Statistics and tracking through occlusion (RQ1), correction after the reappearance (RQ2), surprise (RQ3), inside the state, blackout and closed loop, more seeds, results | planned |
 
 ## Conventions
 
@@ -45,7 +46,7 @@ How the project works, step by step and module by module. Commands are in [usage
 ## Configs
 
 - `configs/data/base.yaml`: generator settings shared by all splits. Frames of 64 x 96 pixels (height x width), sequences of 40 frames, digits resized to 20x20 with a 10% ink threshold, integer speeds |vx| in {2, 3, 4} and vy in {-2, ..., 2}, 8 fully visible frames before the digit reaches the bar, 4 after it leaves, and no wall bounce in the 2 frames around entry and exit. Visibility thresholds: occluded at most 2% visible ink, visible at least 95%. Occlusion durations k in {2, 4, 6, 8} at speeds {2, 3, 4}, and k = 12 at speeds {2, 3}. Control bars at least 4 px wide. Training mix 30% control, 60% occlusion, 10% hidden bounce, with k drawn with weights proportional to k. Surprises: 12 px vertical offset, a forward jump of half the hidden frames for "early", speed surprises from 2 to 4 and from 4 to 2 px/frame, and 100 placements of A tried per digit before another digit is drawn. Rendering: red digit, mid gray bar (0.5).
-- `configs/data/val_v1.yaml` and `configs/data/test_v1.yaml`: the validation and test sets (next section).
+- `configs/data/val_v1.yaml`, `configs/data/test_v1.yaml`, and `configs/data/dev_v1.yaml`: the validation, test, and development sets (next section).
 - `configs/train/<name>.yaml`: one training run. It points to a model config and a data config, and sets the steps, the batch size, the frames per sequence, the seed, the optimizer (learning rate, optional drop and clipping), and the validation (stored set, interval, number of sequences). `loss.digit_weight` sets the weight of the visible digit pixels in the loss (1 for PredNet's own loss). `configs/train/smoke.yaml` is a one minute check of the whole pipeline. `configs/train/pilot_prednet5l_w10.yaml` is the pilot run of the main model: 10k steps of 16 sequences of 40 frames (160,000 new sequences), digit pixels weighted by 10, Adam at 0.001 divided by 10 halfway as in Lotter et al., validation on the whole `val_v1` every 500 steps. `configs/train/pilot_prednet5l.yaml` is the same run with PredNet's own loss, kept to reproduce the first pilot. `configs/train/sweep_<model>.yaml` are the five runs of the training sweep (step 2.10): PredNet 5 layers, 5 layers concat, 4 layers, 3 layers, and the ConvLSTM, with identical settings except the model: seed 0, 15k steps of 16 sequences of 40 frames, digit pixels weighted by 10, Adam at 0.001 divided by 10 at step 10000 (`lr_drop_at: 0.66667`, so that the sudden change seen in the pilot has time to happen before the drop), gradient norm clipped at 1.0, validation on the whole `val_v1` every 500 steps. The clipping was added after PredNet 4 layers with seed 0 diverged (gradient norm 1.3e4 at step 3970); the gradient norm never exceeded 0.31 in the three runs trained before (5 layers, concat, ConvLSTM), so the clip never acted there and their results are those of the current configs (their saved `config.yaml` still says `grad_clip: null`). In the two runs trained with it, it acted once, at step 6705 of PredNet 3 layers (norm 1.77).
 
 ## Validation and test sets
@@ -68,6 +69,8 @@ Training uses sequences generated on the fly from the training digits. Validatio
 | tuples: speed_slow | 4, 8 | 4 | 100 tuples | 800 | RQ3, B at 2 px/frame |
 
 400 sequences per cell give a standard error of about 0.25 px on a mean position error with a spread of 5 px. With 100 tuples per cell, the surprise AUROC has a standard error of about 0.04. On disk, the test set takes about 80 MB, since no frames are stored.
+
+**`dev_v1`** (2220 sequences): every cell of `test_v1` at a tenth of its size (40 sequences per cell, 20 for blackouts, 10 tuples per tuple cell), with the held out digits of the MNIST train file and its own base seed. Every choice of the Phase 3 analyses (windows, thresholds, regions) is fixed on it, so that `test_v1` runs once per analysis, with the choices frozen, and the research questions are never tuned on the test set.
 
 ## Modules
 
@@ -476,6 +479,19 @@ Next frame quality of a model against two baselines:
 - `summarize(table, by)`: mean scores overall or per group, and the MSE reductions 1 - model / baseline against each baseline.
 - `gate(table)`: decision D16. The model's MSE on the visible moving frames must be at least 30% below the better of the two baselines before any occlusion analysis: the model must draw the digit, and in the right place. A model close to either baseline has not learned the motion. The scores per speed show whether PredNet falls back to copying on fast digits, as Rane et al. observed.
 
+#### `peekaboo/eval/extract.py`
+
+One pass of a trained model over a stored set, saving per frame everything the Phase 3 analyses need, so no analysis runs a model again. Row t describes frame t: the prediction of frame t, made from frames 0 to t - 1, and the state R[t] that makes it.
+
+- `extract_frames(model, dataset, start, count, device, probe, decoder, control)`: one row per frame with
+  - what the frame is (`describe`): sequence, frame, condition, k, speed, state, episode, analysis window, frames since the onset and since the reappearance, the tuple, its role and surprise kind, the true and visible ink centers, and the visible fraction;
+  - the next frame scores of the model, the copy, and the blank frame (`<who>_mse`, `_mae`, `_ssim`), and the MSE over two regions (`regions`, `region_mse`): the bar columns with 16 px on each side (`_mse_bar`, where the digit emerges, the widest digit fits in the margin) and the box of the true digit's ink with 4 px around it (`_mse_digit`);
+  - what the predicted and the true frames show (`ink_readout`, `pred_*` and `true_*`): the red ink (red minus green, 0 on the gray bar and the background) above 0.1, summed, its centroid (undefined below one pixel of ink), and the ink left and right of the bar. On the true frames, the centroid is the visible ink center;
+  - the position probe (`probe_y`, `probe_x`, and the probability of the true bin of each axis) and the amodal decoder (`decoder_corr`, `decoder_iou`) saved in the run, and the same for the random initialization control (`random_*`), rebuilt with the seed the control was fitted with;
+  - for PredNet, the mean activity of the error units of every layer (`error_activity`, `e<l>`), and over the bar region taken at the layer's resolution (`e<l>_bar`).
+- `baseline_frames(dataset, start, count)`: the programmed baselines, which do not depend on the model, once per set: the position predicted by every tracker, the bar center x, and the templates moved by the Kalman filters, scored against the amodal frame.
+- `run_chunks(folder, count, chunk, make_part, settings)`: writes the rows by chunks of sequences (`part_<start>.parquet`, each renamed into place once complete), skips the chunks already written, so a stopped pass resumes, refuses a folder written with other settings, and marks the folder complete in its `info.json`. `read_frames(folder)` reads a complete pass, `is_complete` and `chunks_written` give its state.
+
 #### `peekaboo/eval/compare.py`
 
 Comparison of the models of the training sweep, read from the outputs every run already has: its validation log and the reports of the gate, the probes, and the decoder. Nothing is recomputed.
@@ -559,6 +575,7 @@ peekaboo/           the package
   eval/             evaluation
     next_frame.py   next frame scores, SSIM, gate D16
     compare.py      comparison of the sweep models
+    extract.py      one pass of a model over a set, saved per frame
   train/            training
     loop.py         training loop, validation, resume
     sweep.py        training sweep: runs, stages, state, checks
@@ -592,10 +609,12 @@ scripts/            command line entry points
   trial_pilots.py       record of the 2.4 trials
   sweep.py              state of the training sweep and next command
   compare_sweep.py      comparison of the sweep models
+  extract.py            per frame extraction for the Phase 3 analyses
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set
   data/test_v1.yaml test set
+  data/dev_v1.yaml  development set (Phase 3)
   models/prednet_5l.yaml  PredNet, 5 layers
   models/prednet_4l.yaml  PredNet, 4 layers (depth ablation)
   models/prednet_3l.yaml  PredNet, 3 layers (depth ablation)

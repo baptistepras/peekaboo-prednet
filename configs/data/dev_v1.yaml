@@ -1,0 +1,18 @@
+# Development set (Phase 3): the cells of test_v1 at a tenth of their size, with the held out validation digits.
+# Every analysis choice (windows, thresholds, tau, regions) is fixed on it; test_v1 then runs once with the same choices.
+name: dev_v1
+split: val                   # digits: the 5000 held out digits of the MNIST train file, never trained on
+base_seed: 3                 # val_v1 uses 1, test_v1 uses 2
+generator: configs/data/base.yaml
+
+sequences:
+  - {condition: occlusion, k: [2, 4, 6, 8], speed: [2, 3, 4], n: 40}
+  - {condition: occlusion, k: 12, speed: [2, 3], n: 40}
+  - {condition: control, speed: [2, 3, 4], n: 40}
+  - {condition: hidden_bounce, k: [4, 8], speed: [2, 3, 4], n: 40}
+  - {condition: blackout, k: [2, 4, 8], speed: [2, 3, 4], n: 20}
+
+tuples:
+  - {kind: [direction, offset, early, vanish], k: [4, 8], speed: [2, 3, 4], n: 10}
+  - {kind: speed_fast, k: [4, 8], speed: 2, n: 10}
+  - {kind: speed_slow, k: [4, 8], speed: 4, n: 10}
