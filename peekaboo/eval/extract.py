@@ -6,8 +6,8 @@ The model runs once over the set, so no later analysis runs it again. Every fram
 - the next frame scores of the model, the copy of the last frame, and the blank frame (peekaboo/eval/next_frame.py):
   MSE, MAE, and SSIM on the whole frame, and the MSE in two regions, the bar with a margin on each side, where the
   digit emerges, and the box around the true digit;
-- what the predicted frame shows (option A): the predicted ink, its centroid, and the ink on each side of the bar, next
-  to the same quantities on the true frame;
+- what the predicted frame shows (option A): the predicted ink, its centroid off the bar, and the ink on each side of
+  the bar, next to the same quantities on the true frame;
 - what the state holds: the position probe and the amodal decoder saved in the run (steps 2.8 and 2.9), for the
   trained model and for the same architecture at random initialization, the control of both readouts;
 - for PredNet, the mean activity of the error units of every layer, on the whole frame and over the bar.
@@ -44,6 +44,8 @@ DIGIT_MARGIN = 4     # px around the true digit's ink box
 INK_FLOOR = 0.1      # predicted ink below this intensity is left out of the readout (faint blur everywhere)
 MIN_INK = 1.0        # summed ink below which a frame shows no digit, and the centroid is undefined
 MISSING = np.iinfo(np.int64).min  # frames since an event that did not happen
+FRAMES_FORMAT = 2    # version of the columns of a model pass: 2 takes the ink centroid off the bar
+BASELINES_FORMAT = 1  # version of the columns of the baselines
 RANDOM_SEED = 0      # seed of the random initialization control, as in scripts/fit_probes.py and fit_decoder.py
 WHO = ("model", "copy", "blank")
 
@@ -85,17 +87,22 @@ def region_mse(prediction: torch.Tensor, frames: torch.Tensor, region: torch.Ten
 
 def ink_readout(images: torch.Tensor, bar: torch.Tensor) -> dict[str, torch.Tensor]:
     """What an image shows of the digit (B, T, 3, H, W): its red ink (red minus green, which is 0 on the gray bar and
-    the black background) above INK_FLOOR, summed (ink), its centroid (ink_y, ink_x, NaN below MIN_INK), and the ink
-    left and right of the bar."""
+    the black background) above INK_FLOOR, summed (ink), the centroid of the ink off the bar (ink_y, ink_x, NaN below
+    MIN_INK of ink off the bar), and the ink left and right of the bar. The centroid leaves the bar out because the
+    bar is opaque, so the true digit is never seen there, and some models tint the whole bar red, which would pull the
+    centroid to the bar."""
     ink = (images[:, :, 0] - images[:, :, 1]).clamp_min(0)
     ink = ink * (ink > INK_FLOOR)
     height, width = ink.shape[-2:]
     total = ink.sum(dim=(2, 3))
+    off = ink * (~bar)[:, None, None, :]
+    off_total = off.sum(dim=(2, 3))
     ys = torch.arange(height, device=ink.device, dtype=ink.dtype)
     xs = torch.arange(width, device=ink.device, dtype=ink.dtype)
     nan = torch.full_like(total, float("nan"))
-    centroid_y = torch.where(total >= MIN_INK, (ink.sum(dim=3) * ys).sum(dim=2) / total.clamp_min(1e-12), nan)
-    centroid_x = torch.where(total >= MIN_INK, (ink.sum(dim=2) * xs).sum(dim=2) / total.clamp_min(1e-12), nan)
+    defined = off_total >= MIN_INK
+    centroid_y = torch.where(defined, (off.sum(dim=3) * ys).sum(dim=2) / off_total.clamp_min(1e-12), nan)
+    centroid_x = torch.where(defined, (off.sum(dim=2) * xs).sum(dim=2) / off_total.clamp_min(1e-12), nan)
     index = torch.arange(width, device=ink.device)
     has_bar = bar.any(dim=1)
     first = torch.where(has_bar, bar.float().argmax(dim=1), torch.full_like(has_bar, width, dtype=torch.int64))
@@ -284,8 +291,16 @@ def chunks_written(folder: Path) -> int:
     return len(list(folder.glob("part_*.parquet"))) if folder.exists() else 0
 
 
-def read_frames(folder: Path) -> pd.DataFrame:
-    """Every row of a complete pass, in sequence order."""
+def pass_format(folder: Path) -> int | None:
+    """The column version a pass was written with, or None without an info.json."""
+    info_path = folder / "info.json"
+    return json.loads(info_path.read_text(encoding="utf-8"))["settings"].get("format") if info_path.exists() else None
+
+
+def read_frames(folder: Path, columns: list[str] | None = None, filters: list[tuple] | None = None) -> pd.DataFrame:
+    """The rows of a complete pass, in sequence order: every column, or only `columns`, and only the rows that pass
+    the parquet `filters` (for example [("condition", "in", ["occlusion"])])."""
     if not is_complete(folder):
         raise FileNotFoundError(f"{folder} is not a complete extraction")
-    return pd.concat([pd.read_parquet(p) for p in sorted(folder.glob("part_*.parquet"))], ignore_index=True)
+    return pd.concat([pd.read_parquet(p, columns=columns, filters=filters)
+                      for p in sorted(folder.glob("part_*.parquet"))], ignore_index=True)

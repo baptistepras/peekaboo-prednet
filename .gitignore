@@ -65,8 +65,8 @@ htmlcov/
 .idea/
 .env
 
-# Runs kept in git as reference results, with their checkpoint, logs, figures, and evaluation, and the comparison
-# of the sweep models (step 2.10).
+# Runs kept in git as reference results, with their checkpoint, logs, figures, and evaluation, the comparison
+# of the sweep models (step 2.10), and the Phase 3 analyses of the test set (those of dev_v1 stay local).
 # Placed after the rules on data, weights, and media so that it overrides them, and before
 # the macOS rules so that .DS_Store files stay ignored.
 !/runs/pilot_prednet5l_w10/
@@ -74,6 +74,10 @@ htmlcov/
 !/runs/pilot_prednet5l_w10.log
 !/runs/sweep_summary/
 !/runs/sweep_summary/**
+!/runs/analysis/
+/runs/analysis/*
+!/runs/analysis/test_v1/
+!/runs/analysis/test_v1/**
 
 # macOS
 .DS_Store

@@ -17,9 +17,7 @@ import pandas as pd
 
 from peekaboo.eval.compare import plot_since_onset, plot_validation, summary_table
 from peekaboo.paths import RUNS_DIR
-from peekaboo.train.sweep import DATA, FAILED, FIGURES, SWEEP, find_run
-
-REFERENCE = "sweep_prednet5l"  # the model shown in the README: best readouts, fastest to train
+from peekaboo.train.sweep import DATA, FAILED, FIGURES, REFERENCE, SWEEP, find_run
 
 
 def main() -> int:

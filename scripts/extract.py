@@ -23,8 +23,9 @@ from peekaboo.data.render import RenderSettings
 from peekaboo.data.store import StoredDataset
 from peekaboo.data.truth import STATE_NAMES
 from peekaboo.device import describe_device, get_device
-from peekaboo.eval.extract import (RANDOM_SEED, baseline_frames, chunks_written, extract_frames, is_complete,
-                                   read_frames, run_chunks)
+from peekaboo.eval.extract import (BASELINES_FORMAT, FRAMES_FORMAT, RANDOM_SEED, baseline_frames, chunks_written,
+                                   extract_frames, is_complete, pass_format, read_frames, run_chunks)
+from peekaboo.eval.tables import baselines_folder, frames_folder
 from peekaboo.models import build_model
 from peekaboo.paths import DATASETS_DIR, RUNS_DIR
 from peekaboo.probes.amodal import AmodalDecoder
@@ -32,33 +33,27 @@ from peekaboo.probes.position import PositionProbe
 from peekaboo.train.checkpoint import find_checkpoint, load_model
 from peekaboo.train.sweep import MPS, SWEEP
 
-FORMAT = 1  # version of the extracted columns
-
-
-def frames_folder(run_dir: Path, data: str) -> Path:
-    """Where the pass of a run over a set is written."""
-    return run_dir / "eval" / f"frames_{data}"
-
-
-def baselines_folder(runs_dir: Path, data: str) -> Path:
-    """Where the baselines of a set are written."""
-    return runs_dir / "baselines" / data
-
 
 def status(runs_dir: Path, data: str, count: int, chunk: int) -> int:
-    """Print what is extracted on a set for the baselines and every sweep model, and the next command."""
+    """Print what is extracted on a set for the baselines and every sweep model, and the next command. A pass
+    written with an older version of the columns is to be written again with --overwrite."""
     total = -(-count // chunk)
-    jobs = [("baselines", baselines_folder(runs_dir, data), f"python -m scripts.extract --baselines --data {data}")]
+    jobs = [("baselines", baselines_folder(runs_dir, data), BASELINES_FORMAT,
+             f"python -m scripts.extract --baselines --data {data}")]
     for run in SWEEP:
         run_dir = run.run_dir(runs_dir)
-        jobs.append((f"{run.key}/seed{run.seed}", frames_folder(run_dir, data),
+        jobs.append((f"{run.key}/seed{run.seed}", frames_folder(run_dir, data), FRAMES_FORMAT,
                      f"{MPS} python -m scripts.extract --run runs/{run.key}/seed{run.seed} --data {data}"))
     print(f"extraction on {data} ({count} sequences, {total} chunks of {chunk})\n")
     following = None
-    for name, folder, command in jobs:
+    for name, folder, version, command in jobs:
         done = is_complete(folder)
         written = chunks_written(folder)
-        state = "complete" if done else (f"{written} of {total} chunks" if written else "not started")
+        old = written > 0 and pass_format(folder) != version
+        if old:
+            state, done, command = f"older columns (format {pass_format(folder)})", False, f"{command} --overwrite"
+        else:
+            state = "complete" if done else (f"{written} of {total} chunks" if written else "not started")
         print(f"  {name:32s} {state}")
         if not done and following is None:
             following = command
@@ -93,8 +88,9 @@ def main() -> int:
         return status(args.runs, data_dir.name, count, args.chunk)
 
     started = time.perf_counter()
-    settings = {"format": FORMAT, "data": data_dir.name, "count": count, "chunk": args.chunk}
+    settings = {"data": data_dir.name, "count": count, "chunk": args.chunk}
     if args.baselines:
+        settings["format"] = BASELINES_FORMAT
         dataset = StoredDataset(data_dir, include_amodal=True)
         folder = baselines_folder(args.runs, data_dir.name)
         print(f"baselines of {data_dir.name}: {count} sequences, in {folder}")
@@ -124,7 +120,8 @@ def main() -> int:
         dataset = StoredDataset(data_dir, render_settings=RenderSettings.from_config(config["data"]),
                                 include_amodal=True)  # drawn with the training colors
         folder = frames_folder(args.run, data_dir.name)
-        settings.update(checkpoint=path.name, step=int(checkpoint["step"]), control=control is not None)
+        settings.update(format=FRAMES_FORMAT, checkpoint=path.name, step=int(checkpoint["step"]),
+                        control=control is not None)
         print(f"{args.run} ({path.name}, step {checkpoint['step']}) on {describe_device(device)}: {count} sequences "
               f"of {data_dir.name}{'' if control else ', without the random initialization control'}, in {folder}")
 

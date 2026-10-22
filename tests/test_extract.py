@@ -75,7 +75,8 @@ def test_extraction_matches_the_existing_evaluations(pool: DigitPool, settings: 
 
 def test_regions_and_readouts_on_the_true_frames(pool: DigitPool, settings: GeneratorSettings) -> None:
     """On the true frames, the ink readout finds the visible digit at its visible ink center and on one side of the
-    bar; the bar region holds the bar, the digit region holds the digit, and an all frame region gives the MSE."""
+    bar, also when the bar is tinted red; the bar region holds the bar, the digit region holds the digit, and an all
+    frame region gives the MSE."""
     batch = prepare_batch(next(iter(make_loader(held_out(pool, settings), 3, 0, 3))), CPU)
     frames, amodal = batch["frames"], batch["amodal"]
     bar = bar_mask(frames[:, 0])
@@ -89,6 +90,11 @@ def test_regions_and_readouts_on_the_true_frames(pool: DigitPool, settings: Gene
     assert (sides[visible] >= 0.9 * readout["ink"][visible]).all()
     absent = batch["state"] == STATE_NAMES.index("occluded")
     assert torch.isnan(readout["ink_y"][absent]).all()
+    tinted = frames.clone()  # a model that tints the bar red: more ink, the same centroid
+    tinted[:, :, 0] += 0.3 * bar[:, None, None, :]
+    tinted_readout = ink_readout(tinted, bar)
+    assert (tinted_readout["ink"] > readout["ink"]).all()
+    assert torch.allclose(tinted_readout["ink_y"], readout["ink_y"], equal_nan=True)
 
     areas = regions(bar, amodal)
     assert areas["bar"][bar[:, None, None, :].expand_as(areas["bar"])].all()

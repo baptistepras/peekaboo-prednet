@@ -34,8 +34,9 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.8 | Position probe (option B): ridge and 8 bin logistic probes on the pooled states, random initialization control, trackers and bar center as baselines, yellow cross in the figures | done |
 | 2.9 | Amodal decoder (option C): minimal 1 x 1 readout of the whole digit from the states, random initialization control, template baselines, magenta digit in the figures | done |
 | 2.10 | Training sweep: every model with the same settings and seed (15k steps), launched one run at a time with `scripts/sweep.py`, and compared with `scripts/compare_sweep.py`: every PredNet passes the gate and keeps the hidden digit, the ConvLSTM does not draw it (see [Experiments, step 2.10](experiments.md#step-210-training-sweep)) | done |
-| 3.1 | Development set `dev_v1` and the extraction pass: each model runs once over a set, everything the analyses need saved per frame | in progress |
-| 3.2 to 3.8 | Statistics and tracking through occlusion (RQ1), correction after the reappearance (RQ2), surprise (RQ3), inside the state, blackout and closed loop, more seeds, results | planned |
+| 3.1 | Development set `dev_v1` and the extraction pass: each model runs once over a set, everything the analyses need saved per frame | done |
+| 3.2 | Statistics over sequences and seeds (bootstrap, paired differences, AUROC) and tracking through occlusion (RQ1): the state against the frames since the onset, its decay, and the predicted frames when the digit comes out | in progress |
+| 3.3 to 3.8 | Correction after the reappearance (RQ2), surprise (RQ3), inside the state, blackout and closed loop, more seeds, results | planned |
 
 ## Conventions
 
@@ -486,11 +487,36 @@ One pass of a trained model over a stored set, saving per frame everything the P
 - `extract_frames(model, dataset, start, count, device, probe, decoder, control)`: one row per frame with
   - what the frame is (`describe`): sequence, frame, condition, k, speed, state, episode, analysis window, frames since the onset and since the reappearance, the tuple, its role and surprise kind, the true and visible ink centers, and the visible fraction;
   - the next frame scores of the model, the copy, and the blank frame (`<who>_mse`, `_mae`, `_ssim`), and the MSE over two regions (`regions`, `region_mse`): the bar columns with 16 px on each side (`_mse_bar`, where the digit emerges, the widest digit fits in the margin) and the box of the true digit's ink with 4 px around it (`_mse_digit`);
-  - what the predicted and the true frames show (`ink_readout`, `pred_*` and `true_*`): the red ink (red minus green, 0 on the gray bar and the background) above 0.1, summed, its centroid (undefined below one pixel of ink), and the ink left and right of the bar. On the true frames, the centroid is the visible ink center;
+  - what the predicted and the true frames show (`ink_readout`, `pred_*` and `true_*`): the red ink (red minus green, 0 on the gray bar and the background) above 0.1, summed, the centroid of the ink off the bar (undefined below one pixel of ink off the bar), and the ink left and right of the bar. The centroid leaves the bar out because the true digit is never seen over the opaque bar, and because PredNet 5 layers concat and the ConvLSTM tint the whole bar slightly red (10 to 50 pixels of ink over the bar on every frame), which pulled their centroid toward the bar by about 5 px in the first version of the columns. On the true frames, the centroid is the visible ink center;
   - the position probe (`probe_y`, `probe_x`, and the probability of the true bin of each axis) and the amodal decoder (`decoder_corr`, `decoder_iou`) saved in the run, and the same for the random initialization control (`random_*`), rebuilt with the seed the control was fitted with;
   - for PredNet, the mean activity of the error units of every layer (`error_activity`, `e<l>`), and over the bar region taken at the layer's resolution (`e<l>_bar`).
 - `baseline_frames(dataset, start, count)`: the programmed baselines, which do not depend on the model, once per set: the position predicted by every tracker, the bar center x, and the templates moved by the Kalman filters, scored against the amodal frame.
-- `run_chunks(folder, count, chunk, make_part, settings)`: writes the rows by chunks of sequences (`part_<start>.parquet`, each renamed into place once complete), skips the chunks already written, so a stopped pass resumes, refuses a folder written with other settings, and marks the folder complete in its `info.json`. `read_frames(folder)` reads a complete pass, `is_complete` and `chunks_written` give its state.
+- `run_chunks(folder, count, chunk, make_part, settings)`: writes the rows by chunks of sequences (`part_<start>.parquet`, each renamed into place once complete), skips the chunks already written, so a stopped pass resumes, refuses a folder written with other settings, and marks the folder complete in its `info.json`. `read_frames(folder, columns, filters)` reads a complete pass (all its columns, or some, and only the rows that pass parquet filters), `is_complete`, `chunks_written`, and `pass_format` give its state.
+- `FRAMES_FORMAT` and `BASELINES_FORMAT`: the version of the columns of a model pass (2, the centroid off the bar) and of the baselines (1), saved in `info.json`. The analyses refuse a pass with older columns, and `scripts/extract.py --status` gives the command that writes it again.
+
+#### `peekaboo/eval/stats.py`
+
+The statistics of the Phase 3 analyses. A per frame table has many correlated frames per sequence, so every statistic first reduces it to one value per sequence (and per seed): the sequence is the unit of replication, and the seed is the outer level when a model has several. Comparisons are paired, on the same sequences.
+
+- `mean_se(values)`: mean, standard error, and number of sequences; the standard error is over sequences for one seed, over the seed means for several. Used for the curves.
+- `bootstrap(values)`: the mean with a 95% percentile bootstrap interval (2000 resamples, seed 0): the sequences are resampled, the same for every seed, and the seeds too when there are several. Values are a vector (one seed) or a matrix with one row per seed and one column per sequence.
+- `paired_difference(a, b)`: the same for a - b on the sequences both have (b may be a baseline, the same for every seed).
+- `auroc(positive, negative)` and `bootstrap_auroc(positive, negative, paired)`: the area under the ROC curve (Mann-Whitney, ties counted half) with its interval, resampling the tuples together when the cases are paired (step 3.4).
+
+#### `peekaboo/eval/tables.py`
+
+The extraction tables as the analyses read them. `available_runs(runs_dir, data)` finds every seed of every sweep model with a complete pass on a set (the failed runs kept as records are left out) and refuses a pass with older columns; `read_runs(runs, baselines, conditions, columns, roles)` reads their rows of some conditions (and tuple roles: `none` for the sequences of the cells), with `model` and `seed`, joined with the baselines of the set; `add_errors` adds the error of every position readout on y, x, and the distance (`probe_err_y`, `kalman_err`, ...); `per_sequence(table, column)` gives one value per seed and sequence, as `stats.py` takes them.
+
+#### `peekaboo/eval/occlusion.py`
+
+Tracking through occlusion (RQ1). The sequences are those of the occlusion cells (the members of surprise tuples are left to RQ2 and RQ3) and of the hidden bounce cells, on the analysis window; j is the number of frames since the onset, and the hidden frames are j = 0 to k - 1.
+
+- `READOUTS`: what is read from the state, each with its random initialization control and its programmed references: the probe error on y (the main axis, C4), on x (with the bar center), and its distance to the center, against the last seen position and the two Kalman filters; the decoder correlation and IoU, against the templates moved by the Kalman filters.
+- `curves(table, by_speed)`: every readout against j, from 3 frames before the onset to 3 frames after the last hidden frame, per condition, k (and speed), for every model, its control, and the references, with the standard error.
+- `hidden_summary(table, reference)`: every readout on the hidden frames (one value per sequence, its mean over them) per condition and k, with bootstrap intervals, and the paired differences of each model against its control, the references, and the reference model PredNet 5 layers.
+- `decay(table)`: the slope of every readout against j over the hidden frames of each sequence (H1b predicts that the error grows with the duration) and its value at the last hidden frame, per k.
+- `emergence_rows`, `emergence(table)`, and `timing(table)`: the predicted frames when the digit comes out (C1: a hidden digit is not to be drawn, so these are the frames that show whether the model kept it), from 2 frames before the reappearance to 3 after. The exit side is the side of the bar with the more true ink on the reappearance frame (for a hidden bounce, the entry side; the bar stands against the wall there, so the other side has no room and the share on the exit side is 1 by construction). Measures: the ink drawn on the exit side, against the true frame and the copy of the last frame (the true exit ink of the previous frame); the share of the drawn ink off the bar that is on the exit side; the readout of the drawn digit against its visible center, against the copy's (the visible center of the previous frame); the share of visible frames with a drawn digit; and the MSE over the bar region, against the copy and the blank frame. The summary averages the reappearance frame and the next two. The timing compares the first frame with at least one pixel of ink on the exit side, drawn and true: early, on time, late, or never within the 3 frames after the reappearance; the copy is one frame late by construction, the blank frame never comes out. The true digit often shows a few faint edge pixels on the frame before (well under one pixel of ink), so a model that crosses the threshold one frame early is still close to the truth.
+- `plot_curves`, `plot_speeds`, `plot_decay`, and `plot_emergence`: the figures, one panel per k (and speed), the hidden frames shaded, every model with its standard error band, the random initialization control of the reference model, and the references in gray. Each model keeps its color in every figure. The share on the exit side is only in the tables: from the reappearance on, it is 1 for every model.
 
 #### `peekaboo/eval/compare.py`
 
@@ -576,6 +602,9 @@ peekaboo/           the package
     next_frame.py   next frame scores, SSIM, gate D16
     compare.py      comparison of the sweep models
     extract.py      one pass of a model over a set, saved per frame
+    stats.py        bootstrap, paired differences, AUROC
+    tables.py       the extraction tables as the analyses read them
+    occlusion.py    tracking through occlusion (RQ1)
   train/            training
     loop.py         training loop, validation, resume
     sweep.py        training sweep: runs, stages, state, checks
@@ -610,6 +639,7 @@ scripts/            command line entry points
   sweep.py              state of the training sweep and next command
   compare_sweep.py      comparison of the sweep models
   extract.py            per frame extraction for the Phase 3 analyses
+  analyze_occlusion.py  tracking through occlusion (RQ1)
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set
@@ -631,6 +661,7 @@ docs/               documentation
   experiments.md    training experiments and their results
 runs/pilot_prednet5l_w10/  the reference pilot run (step 2.4)
 runs/sweep_summary/        the comparison of the sweep models (step 2.10)
+runs/analysis/test_v1/     the Phase 3 analyses of the test set
 README.md           project page
 LICENSE             MIT license of the project's code
 environment.yml     conda environment "peekaboo"
@@ -638,4 +669,4 @@ pyproject.toml      pytest settings (nothing to install)
 THIRD_PARTY_NOTICES.md  references and licenses of the third party code
 ```
 
-These folders are created by the scripts and are not tracked by git: `data/`, `runs/`, `figures/`. The exceptions are the reference pilot run `runs/pilot_prednet5l_w10/` (see [Experiments, step 2.4](experiments.md#step-24-pilot-training-of-prednet-5-layers)) and the comparison of the sweep models `runs/sweep_summary/` (see [Experiments, step 2.10](experiments.md#step-210-training-sweep)); the sweep runs themselves stay local. The local references `papers/` and `third_party/` are not tracked either. The full list is in [`.gitignore`](../.gitignore).
+These folders are created by the scripts and are not tracked by git: `data/`, `runs/`, `figures/`. The exceptions are the reference pilot run `runs/pilot_prednet5l_w10/` (see [Experiments, step 2.4](experiments.md#step-24-pilot-training-of-prednet-5-layers)) the comparison of the sweep models `runs/sweep_summary/` (see [Experiments, step 2.10](experiments.md#step-210-training-sweep)), and the Phase 3 analyses of the test set `runs/analysis/test_v1/`; the sweep runs themselves, their extraction tables, and the analyses of `dev_v1` stay local. The local references `papers/` and `third_party/` are not tracked either. The full list is in [`.gitignore`](../.gitignore).
