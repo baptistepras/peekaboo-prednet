@@ -35,7 +35,7 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.9 | Amodal decoder (option C): minimal 1 x 1 readout of the whole digit from the states, random initialization control, template baselines, magenta digit in the figures | done |
 | 2.10 | Training sweep: every model with the same settings and seed (15k steps), launched one run at a time with `scripts/sweep.py`, and compared with `scripts/compare_sweep.py`: every PredNet passes the gate and keeps the hidden digit, the ConvLSTM does not draw it (see [Experiments, step 2.10](experiments.md#step-210-training-sweep)) | done |
 | 3.1 | Development set `dev_v1` and the extraction pass: each model runs once over a set, everything the analyses need saved per frame | done |
-| 3.2 | Statistics over sequences and seeds (bootstrap, paired differences, AUROC) and tracking through occlusion (RQ1): the state against the frames since the onset, its decay, and the predicted frames when the digit comes out | in progress |
+| 3.2 | Statistics over sequences and seeds (bootstrap, paired differences, AUROC) and tracking through occlusion (RQ1): the state against the frames since the onset, its decay, and the predicted frames when the digit comes out: the PredNets keep the hidden digit without measurable loss up to 12 hidden frames and draw it back on time, the ConvLSTM does not (see [Experiments, step 3.2](experiments.md#step-32-tracking-through-occlusion-rq1)) | done |
 | 3.3 to 3.8 | Correction after the reappearance (RQ2), surprise (RQ3), inside the state, blackout and closed loop, more seeds, results | planned |
 
 ## Conventions

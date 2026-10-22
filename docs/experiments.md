@@ -169,3 +169,94 @@ Only the 5 layer model shows the pilot's sudden change (its validation MSE halve
 **Reference model.** PredNet 5 layers stays the reference model, shown in the README: it has the most precise readouts (best probe in every column, decoder within 0.03 of the best), it is the fastest to train (7.4 h, against 13.8 h for 4 layers and 29.1 h for 3 layers), it trained without incident with the first seed tried, and it is the architecture of Lotter et al. whose top layer sees the whole frame. The 3 layer model predicts the frames best, but the occlusion questions are about what the state holds, not about the pixels.
 
 **Decisions.** The five models go to Phase 3 as trained here, with PredNet 4 layers seed 1 as its run of record. Gradient clipping at 1.0 stays in the configs; if more seeds are trained, a learning rate warmup or a larger Adam epsilon would address the spikes. The runs stay local (about 38 MB per checkpoint); the comparison is kept in git in `runs/sweep_summary/`.
+
+## Step 3.2: tracking through occlusion (RQ1)
+
+**Question.** While the digit is hidden, does each model keep it, and does it lose it faster when it stays hidden longer (H1b)? And does the model draw the digit again at the right frame and in the right place when it comes out (H1a)? A hidden digit is not to be drawn, so the predicted frames say something only when the digit comes out; what the model holds while it is hidden is read from its state, with the position probe and the amodal decoder.
+
+**Setup.** The five sweep models (one seed each, seed 1 for 4 layers) on `test_v1`: the 5600 sequences of the occlusion cells (k = 2, 4, 6, 8, 12; the members of surprise tuples are left to RQ2 and RQ3) and the 2400 hidden bounce sequences (k = 4, 8). Each model ran once over the set (step 3.1, about 8 h for the five models), and `scripts/analyze_occlusion.py` reads the saved frames (`runs/analysis/test_v1/occlusion/`). Every value is first averaged per sequence; intervals are 95% percentile bootstraps over sequences (2000 resamples), and comparisons are paired on the same sequences. Every choice (the frames shown, the emergence window and threshold, the measures) was fixed on `dev_v1` and committed before `test_v1` was run.
+
+One reading was fixed on `dev_v1` before that. The concat model and the ConvLSTM tint the whole gray bar slightly red on every frame (10 to 50 pixels' worth of ink), which pulled the centroid of the drawn digit toward the bar: 5 px of error even on visible frames, against 0.1 px for the PredNets. Since the bar is opaque, the true digit is never visible on it, so the centroid is now read off the bar (extraction format 2), and the five passes were written again.
+
+**The hidden digit stays in every PredNet's state, not in the ConvLSTM's.** Hidden frames, all k together:
+
+| Model | Probe error on y (px) | Probe error on x (px) | Decoder correlation | Probe error on y, minus the Kalman filter's |
+| --- | --- | --- | --- | --- |
+| PredNet 5 layers | **0.64** [0.63, 0.65] | **0.65** [0.65, 0.67] | 0.76 | **-1.74** [-1.90, -1.58] |
+| PredNet 5 layers, concat | 0.76 [0.74, 0.77] | 0.70 [0.69, 0.71] | 0.73 | -1.62 [-1.78, -1.45] |
+| PredNet 4 layers | 0.86 [0.84, 0.87] | 0.79 [0.78, 0.80] | **0.78** | -1.52 [-1.69, -1.35] |
+| PredNet 3 layers | 1.46 [1.44, 1.49] | 1.35 [1.33, 1.37] | 0.76 | -0.92 [-1.08, -0.75] |
+| ConvLSTM | 5.13 [5.03, 5.22] | 3.51 [3.46, 3.56] | 0.30 | 2.75 [2.57, 2.94] |
+| same models at random initialization | 7.3 to 9.0 | | 0.17 to 0.20 | |
+| last seen position | 7.77 | 21.96 | | |
+| Kalman, constant velocity (and the template it moves) | 2.38 | 0.08 | 0.84 | |
+
+Hidden bounce sequences, where the digit bounces off a wall behind the bar and comes back out on its entry side:
+
+| Model | Probe error on y (px) | Probe error on x (px) | Decoder correlation | Decoder, minus the Kalman template |
+| --- | --- | --- | --- | --- |
+| PredNet 5 layers | **0.98** | **1.52** | 0.72 | +0.19 [0.18, 0.20] |
+| PredNet 5 layers, concat | 1.13 | 1.88 | 0.69 | +0.16 [0.15, 0.16] |
+| PredNet 4 layers | 1.23 | 2.67 | **0.75** | **+0.21** [0.21, 0.22] |
+| PredNet 3 layers | 2.07 | 3.33 | 0.73 | +0.19 [0.18, 0.20] |
+| ConvLSTM | 5.86 | 4.69 | 0.31 | -0.22 [-0.23, -0.21] |
+| last seen position | 7.57 | 17.89 | | |
+| Kalman, constant velocity (and the template it moves) | 2.55 | 4.50 | 0.54 | |
+
+The Kalman filter with walls has no error at all (0.00 px): with exact positions and the walls known, it reproduces the motion exactly. It is the ceiling of the task, not a competitor.
+
+- Every PredNet reads the hidden digit's vertical position within 0.6 to 1.5 px, 0.9 to 1.7 px better than the constant velocity filter, whose error comes from wall bounces just before or during the occlusion. Through a hidden bounce, they keep both axes (1.5 to 3.3 px in x, against 4.5 px for the filter and 17.9 px for the last seen position), and their decoders beat the template moved at constant velocity by about 0.2.
+- In plain occlusions the template moved by the Kalman filter is still a better picture of the hidden digit (0.84 against 0.73 to 0.78): it is the true digit's own image, moved to a nearly exact position.
+- The order of the sweep holds on the test set, now with intervals: against the 5 layer model, the probe error on y is 0.12 px larger for concat [0.11, 0.13], 0.22 px for 4 layers [0.20, 0.24], and 0.83 px for 3 layers [0.80, 0.85].
+- The ConvLSTM's state holds less than a constant velocity filter (2.75 px worse), and its decoder is 0.11 above its own random initialization.
+
+![Readouts of the state against the frames since the onset](../runs/analysis/test_v1/occlusion/occlusion.png)
+
+<sub>Occlusion sequences of `test_v1`: probe error on y (top) and x (middle) and decoder correlation (bottom) against j, the frames since the onset, one column per k, hidden frames shaded. Each model with its standard error band, the random initialization of the 5 layer model (dotted blue), and the references in gray: last seen position, Kalman filters, bar center, and the templates they move.</sub>
+
+**H1b: the PredNets do not lose the digit as the occlusion lasts; the ConvLSTM loses it at once.** The slope of the probe error on y over the hidden frames, and its value at the last hidden frame:
+
+| Model | Slope (px per hidden frame), k = 2 to 12 | Last hidden frame, k = 2 | Last hidden frame, k = 12 |
+| --- | --- | --- | --- |
+| PredNet 5 layers | 0.004 to 0.011 | 0.65 | **0.71** |
+| PredNet 5 layers, concat | 0.004 to 0.024 | 0.76 | 0.85 |
+| PredNet 4 layers | 0.005 to 0.023 | 0.86 | 0.95 |
+| PredNet 3 layers | 0.020 to 0.060 | 1.43 | 1.57 |
+| ConvLSTM | 0.66 to 1.06 | 3.97 | 11.16 |
+| PredNet 5 layers at random initialization | 0.65 to 1.41 | 7.61 | 12.40 |
+| last seen position | 0.71 to 0.92 | 6.55 | 14.14 |
+| Kalman, constant velocity | 0.35 to 0.84 | 1.15 | 10.44 |
+
+![Decay over the hidden frames against k](../runs/analysis/test_v1/occlusion/decay.png)
+
+<sub>Occlusion sequences of `test_v1`, against k: the probe error on y at the last hidden frame (left), its slope over the hidden frames (middle), and the decoder correlation at the last hidden frame (right), with 95% intervals.</sub>
+
+- For the PredNets, the slopes are tiny: some are above zero (0.010 px per frame [0.005, 0.014] for 5 layers at k = 12), but that adds up to about 0.1 px over 12 hidden frames. After 12 hidden frames, the 5 layer model still reads the digit within 0.71 px, where the constant velocity filter is 10.4 px off. H1b, as stated (the error grows with the duration), does not hold for them: their memory does not fade over the durations tested.
+- The ConvLSTM's error grows by about 1 px per hidden frame, about as fast as the last seen position, and its decoder falls to its random initialization level by k = 6. It is the only model for which H1b holds.
+
+**H1a: the PredNets draw the digit as it comes out, on time and in place.** On the frames where the digit comes out (the reappearance frame and the next two):
+
+| Model | On time | Late | Early | Ink drawn on the exit side | Drawn digit, error on y (px) | MSE over the bar region |
+| --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers | 92% | 1% | 6% | 25.5 | 0.25 | 0.00015 |
+| PredNet 5 layers, concat | 90% | 1% | 9% | 25.7 | 0.29 | 0.00071 |
+| PredNet 4 layers | 91% | 1% | 8% | 25.6 | 0.28 | 0.00015 |
+| PredNet 3 layers | 93% | 4% | 2% | 24.6 | **0.22** | **0.00010** |
+| ConvLSTM | 22% | 71% | 7% | 29.5 | 1.17 | 0.00298 |
+| true frame | | | | 23.9 | | |
+| copy of the last frame | 0% | 100% | 0% | 11.2 | 1.66 | 0.00171 |
+| blank frame | | | | | | 0.00163 |
+
+The timing compares the first frame with at least one pixel's worth of ink on the exit side, drawn and true. The copy of the last frame is one frame late by construction. "Early" mostly means the model crosses the threshold on the frame before, when the true digit already shows a few faint edge pixels (0.12 of ink on average).
+
+![Predicted frames when the digit comes out](../runs/analysis/test_v1/occlusion/emergence.png)
+
+<sub>Occlusion (left) and hidden bounce (right) sequences of `test_v1`, against the frames since the reappearance: the ink drawn on the exit side of the bar (top), the error on y of the drawn digit against the visible digit (middle), and the MSE over the bar region (bottom, log scale), with the true frame, the copy of the last frame, and the blank frame.</sub>
+
+- Every PredNet draws the edge of the digit on the frame where it comes out (9.7 pixels' worth of ink for the 5 layer model, against 8.9 on the true frame), before it has seen any of it, and in place (0.25 px in y). After a hidden bounce they do the same on the entry side (84 to 87% on time).
+- The ConvLSTM behaves like the copy of the last frame: it draws almost nothing on the reappearance frame (4.3), then too much once it has seen the digit (37.9 against 24.7 on the next frame). Over the bar region, it does worse than the blank frame.
+- The concat model's bar MSE is 5 times the 5 layer model's because of its red tint, not because of the digit: its timing and its drawn digit are as good.
+
+**Limits.** One seed per model: the intervals are over test sequences, not over training runs, so differences between models of a few tenths of a pixel say how these runs differ, not how the architectures do; more seeds come in step 3.7. The emergence threshold (one pixel's worth of ink) and the window (2 frames before to 3 after) were fixed on `dev_v1`. The probe and the decoder are minimal readouts fitted on new sequences of the training stream (steps 2.8 and 2.9), so they show what the state holds in a linearly readable form, a lower bound.
+
+**Decisions.** RQ1 is answered for this sweep: the PredNets keep the hidden digit and draw it back on time, without measurable loss up to 12 hidden frames; the ConvLSTM does not. The analyses of `test_v1` are kept in git in `runs/analysis/test_v1/`.

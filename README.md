@@ -60,6 +60,24 @@ A minimal decoder (one weight per state channel) also reads the hidden digit its
 
 Every PredNet keeps the hidden digit's position and shape in its state, and follows it through a bounce off a wall while hidden, where the Kalman filter goes the wrong way. Shallower PredNets predict the frames better but hold the position less precisely. The ConvLSTM, with the same budget, loses the digit once it goes behind the bar.
 
+**On the test set, the PredNets do not lose the digit as the occlusion lasts (RQ1).** On 5600 occlusion sequences of the test set (95% bootstrap intervals over sequences, one seed per model):
+
+| Model | Probe error on y, hidden | After 12 hidden frames | Digit drawn again on time |
+| --- | --- | --- | --- |
+| PredNet 5 layers | **0.64 px** [0.63, 0.65] | **0.71 px** | 92% |
+| PredNet 4 layers | 0.86 px [0.84, 0.87] | 0.95 px | 91% |
+| PredNet 3 layers | 1.46 px [1.44, 1.49] | 1.57 px | **93%** |
+| PredNet 5 layers, without explicit error units | 0.76 px [0.74, 0.77] | 0.85 px | 90% |
+| ConvLSTM | 5.13 px [5.03, 5.22] | 11.16 px | 22% (71% one frame late) |
+| constant velocity Kalman filter | 2.38 px [2.21, 2.54] | 10.44 px | |
+| copy of the last frame | | | 0% (one frame late by construction) |
+
+The PredNets' error grows by at most 0.06 px per hidden frame, and they draw the edge of the digit on the very frame it comes out of the bar, before they have seen any of it. The ConvLSTM loses about 1 px per hidden frame and, like the copy of the last frame, draws the digit one frame late.
+
+<p align="center">
+  <img src="runs/analysis/test_v1/occlusion/decay.png" alt="Probe error at the last hidden frame, its slope over the hidden frames, and the decoder correlation, against the number of hidden frames" width="100%">
+</p>
+
 The full analysis is in [docs/experiments.md](docs/experiments.md).
 
 ## Status
@@ -69,7 +87,8 @@ The full analysis is in [docs/experiments.md](docs/experiments.md).
 | 1 | Occlusion generator, surprise tuples, ground truth, validation and test sets, PredNet | done |
 | 2.1 to 2.9 | Training, evaluation, prediction figures, the pilot run of PredNet, its ablations (no explicit error units, 3 and 4 layers), the ConvLSTM baseline, the programmed trackers (Kalman filters), the position probe, and the amodal decoder | done |
 | 2.10 | Training sweep of every model: PredNet with 3, 4, and 5 layers, without explicit error units, and the ConvLSTM | done |
-| 3 | Evaluation on the test set: occlusion curves, correction latency, surprise | in progress |
+| 3.1 and 3.2 | Development set, extraction pass over the test set, statistics, and tracking through occlusion (RQ1) | done |
+| 3.3 to 3.8 | Correction after the reappearance, surprise, inside the state, more seeds | in progress |
 
 The detailed status of every step is in [docs/implementation.md](docs/implementation.md#status).
 
@@ -97,7 +116,7 @@ scripts/    command line entry points
 configs/    one config file per dataset, model, and training run
 tests/      unit tests (pytest)
 docs/       implementation, usage, and experiments
-runs/       the reference pilot run and the sweep comparison (other runs, data, and figures stay local)
+runs/       the reference pilot run, the sweep comparison, and the test set analyses (other runs, data, and figures stay local)
 ```
 
 The full tree is in [docs/implementation.md](docs/implementation.md#repository-layout).
