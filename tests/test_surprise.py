@@ -11,8 +11,8 @@ import pandas as pd
 import pytest
 
 from peekaboo.eval.extract import FRAMES_FORMAT, MISSING
-from peekaboo.eval.surprise import (AFTER, BEFORE, COLUMNS, CONDITIONS, ROWS, WINDOW, plot_auroc, plot_curves,
-                                    plot_layers, surprise, tuple_rows)
+from peekaboo.eval.surprise import (AFTER, BEFORE, COLUMNS, CONDITIONS, ROWS, WINDOW, pair_stats, plot_auroc,
+                                    plot_curves, plot_layers, surprise, tuple_rows)
 from peekaboo.eval.tables import ModelRun, read_runs
 
 STEPS, REAPPEAR = 20, 10
@@ -98,6 +98,16 @@ def test_index_and_auroc(tables: dict[str, pd.DataFrame]) -> None:
                                                     2 * (SURPRISED - BASE))
             assert m2["index_mean"] == 0.0 and m2["auroc"] == 0.5 and m2["higher"] == 0.0
             assert index.loc[(kind, pair, "mse", "copy"), "index_mean"] == 0.0
+
+
+def test_paired_share_against_auroc() -> None:
+    """A small rise on a signal that varies much between tuples: AB is higher in every tuple, but the AUROC, which
+    ranks all the AB against all the B, stays near 0.5."""
+    level = np.arange(10, dtype=np.float64)
+    positive = pd.DataFrame({"seed": 0, "tuple_id": range(10), "value": level + 0.1})
+    negative = pd.DataFrame({"seed": 0, "tuple_id": range(10), "value": level})
+    stats = pair_stats(positive, negative)
+    assert stats["higher"] == 1.0 and np.isclose(stats["auroc"], 0.55) and np.isclose(stats["index_mean"], 0.1)
 
 
 def test_error_units_and_scopes(tables: dict[str, pd.DataFrame]) -> None:

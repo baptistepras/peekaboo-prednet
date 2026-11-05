@@ -335,3 +335,92 @@ The PredNets draw the digit where it comes out and keep it in their state throug
 **Limits.** One seed per model. The latency is relative to each model's own precision, and censored after 6 frames because the analysis windows end soon after the digit leaves the bar: for the probe after `direction` and `offset`, the curves and the mean error say more than the latency. The probe and the decoder were fitted on ordinary sequences; a surprising history may take the state where a linear readout was never fitted, which step 3.5 tests.
 
 **Decisions.** RQ2 is answered for this sweep. Step 3.4 measures the surprise itself, in the prediction errors right after the reappearance (AB against B, with AUROC), and the key contrast between `direction` and the hidden bounce. Step 3.5 should read the state of the AB sequences layer by layer, to see where the old trajectory is kept.
+
+## Step 3.4: surprise (RQ3)
+
+**Question.** Are the prediction errors larger after a surprising event than after a matched plausible one, and can they tell the two apart (H3)?
+
+**Setup.** The five sweep models (one seed each) on `test_v1`, from the passes of step 3.1 (`scripts/analyze_surprise.py`, about 5 minutes; `runs/analysis/test_v1/surprise/`). Each surprise tuple (600 per kind, 200 for the speed kinds) gives the controlled comparison of PLATO: the impossible member AB and the possible member B show exactly the same frames from the splice on, so any difference comes from the history alone; BA against A is the mirror. For `vanish`, AB is the digit that never comes back and B the same scene without a digit.
+
+The signal is read over 5 frames from the first frame where AB departs from what its history announces: the earlier of the reappearances of A (expected by AB's history) and B (shown by AB). This is the actual reappearance when the digit comes early or on time, and the expected one when it comes late or never. The window length is the default of the protocol, committed before `test_v1` was run; `dev_v1` gives the same picture and changed nothing.
+
+Three measures per tuple: the surprise index (the window mean of AB minus that of B, with a bootstrap interval over tuples), the AUROC (with a paired bootstrap interval), and the share of tuples where AB is higher. The copy of the last frame and the blank frame are the check: they see the same frames in AB and B, and their index is exactly 0 on every kind, as it must be.
+
+**Every PredNet is surprised on identical frames, and the ConvLSTM is not.** Next frame MSE on the whole frame, AB minus B (x 10⁻⁴, 95% intervals):
+
+| Model | direction | offset | early | speed fast | speed slow | vanish | AUROC | Tuples with AB higher |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers | 4.68 [4.53, 4.85] | 6.24 [6.02, 6.47] | 3.98 [3.83, 4.13] | 6.38 [6.12, 6.64] | 5.64 [5.32, 6.01] | 3.15 [3.05, 3.26] | 0.995 to 1.00 | 99.7 to 100% |
+| PredNet 5 layers, concat | 4.36 [4.23, 4.50] | 5.74 [5.55, 5.94] | 3.41 [3.29, 3.54] | 6.05 [5.80, 6.29] | 5.15 [4.84, 5.48] | 3.55 [3.44, 3.67] | 0.92 to 1.00 | 99.8 to 100% |
+| PredNet 4 layers | 4.29 [4.16, 4.44] | 5.03 [4.87, 5.20] | 3.34 [3.21, 3.47] | 5.08 [4.87, 5.30] | 4.40 [4.18, 4.64] | 2.54 [2.47, 2.62] | 0.99 to 1.00 | 100% |
+| PredNet 3 layers | 4.47 [4.33, 4.61] | 5.38 [5.15, 5.60] | 3.51 [3.38, 3.63] | 4.49 [4.32, 4.66] | 3.95 [3.75, 4.17] | 2.41 [2.33, 2.49] | 0.997 to 1.00 | 99.8 to 100% |
+| ConvLSTM | -0.03 [-0.05, -0.01] | 0.07 [0.05, 0.08] | 0.04 [0.03, 0.05] | 0.31 [0.24, 0.38] | 0.03 [0.02, 0.05] | 0.00 [0.00, 0.00] | 0.50 to 0.53 | 44 to 71% |
+| Copy of the last frame | 0 | 0 | 0 | 0 | 0 | 0 | 0.50 | none (ties) |
+
+- The mirror BA - A gives the same picture: an index of 2.6 to 7.1 x 10⁻⁴ for the PredNets, with an AUROC of 0.99 to 1.00 for 3, 4, and 5 layers and 0.87 to 1.00 for concat. The MSE over the bar region tells the same story, with larger values.
+- With an AUROC at the ceiling, the models cannot be ranked by it; the index can tell them apart, but with one seed per model, those differences are between these runs.
+- The concat model has about the same index as the 5 layer model, and a lower AUROC: its error has a floor of 3.6 x 10⁻⁴ on frames where 5 layers has 4 x 10⁻⁶, so the same rise stands out less between tuples. In a PredNet, passing the errors on explicitly is not what makes the surprise appear.
+- The ConvLSTM is not simply hidden by its floor (1.5 x 10⁻³): its index itself is at least 15 times smaller than the PredNets'. The largest is 0.31 x 10⁻⁴ on `speed_fast`, small but distinct from 0. A model that does not keep the hidden digit (step 3.2) has almost no expectation to violate.
+- In the 5 layer model, the index grows with the digit's speed on every kind with several speeds (`direction`: 3.50, 4.76, and 5.79 x 10⁻⁴ at 2, 3, and 4 px per frame), which may simply be because a faster digit leaves more pixels wrong. It is still there after 8 hidden frames: lower than after 4 for `direction` (4.19 against 5.18 x 10⁻⁴), `early`, and the speed kinds, unchanged for `offset` and `vanish`.
+
+**The surprise appears even when nothing in the image changes.** In the 5 layer model:
+
+| Frames since the window start | -1 | 0 | 1 | 2 | 3 | 4 | 5 | 7 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `vanish`, AB (x 10⁻⁵) | 0.87 | 37 | 57 | 38 | 19 | 8.9 | 4.0 | 0.67 |
+| `vanish`, B, the same frames (x 10⁻⁵) | 0.39 | 0.39 | 0.39 | 0.39 | 0.39 | 0.39 | 0.39 | 0.39 |
+| `vanish`, copy (x 10⁻⁵) | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `direction`, AB (x 10⁻⁵) | 0.73 | 35 | 80 | 75 | 49 | 31 | 22 | 13 |
+| `direction`, B, the same frames (x 10⁻⁵) | 0.53 | 3.1 | 7.7 | 9.3 | 8.4 | 7.2 | 6.5 | 6.6 |
+
+- After `vanish`, the frames do not change at all (the copy's error is exactly 0), and on the same frames with no digit in the history the error stays flat. With the digit in its history, the error rises about 150 fold around the frame where the digit should come back, and fades over about 7 frames: the error is the model's expectation alone, an omission response.
+- After `speed_slow`, the same at the expected frame, where the digit has not come yet: 52 x 10⁻⁵ on AB against 0.54 x 10⁻⁵ on B, with a copy at 0.07 x 10⁻⁵.
+- After `direction`, the peak is about 10 times B's on the same frames, and the excess is still there at the end of the window: the 5 frames catch the peak, not the whole response.
+- This fits step 3.3: the PredNets take a few frames to redraw the digit in its true place. On the probe side, step 3.3 already gives the answer: the probe's reading does not jump to the new place at the reappearance, it stays on the old trajectory.
+
+![Signals against the frames since the window start](../runs/analysis/test_v1/surprise/curves.png)
+
+<sub>`test_v1`, log scale: the next frame MSE on the whole frame (top) and over the bar region (bottom) against the frames since the window start (shaded), per surprise kind; solid: the impossible member AB, dashed: the possible member B, which shows the same frames from the splice on; dotted: the copy of the last frame.</sub>
+
+![AUROC per surprise kind](../runs/analysis/test_v1/surprise/surprise.png)
+
+<sub>`test_v1`: the AUROC of the window mean of the whole frame MSE (top) and of the MSE over the bar region (middle), per surprise kind and model; filled: AB against B, open: BA against A; the key contrast (bottom), unpaired; with 95% intervals.</sub>
+
+**The same look, explained by a wall (C13).** A digit that comes back out on its entry side is impossible without a wall (`direction`) and expected with one (the hidden bounce cells). These are different frames, so this comparison is unpaired and less controlled than AB against B. Whole frame MSE over the 5 frames from the reappearance, with the unpaired AUROC:
+
+| Model | Occlusion | Hidden bounce | `direction` AB | Hidden bounce vs occlusion | `direction` AB vs hidden bounce |
+| --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers | 0.88 x 10⁻⁴ | 1.35 x 10⁻⁴ | 5.40 x 10⁻⁴ | 0.73 [0.72, 0.74] | 0.98 [0.98, 0.99] |
+| PredNet 5 layers, concat | 4.37 x 10⁻⁴ | 3.84 x 10⁻⁴ | 8.67 x 10⁻⁴ | 0.40 [0.39, 0.42] | 0.98 [0.98, 0.99] |
+| PredNet 4 layers | 0.85 x 10⁻⁴ | 1.28 x 10⁻⁴ | 4.99 x 10⁻⁴ | 0.71 [0.70, 0.72] | 0.98 [0.98, 0.99] |
+| PredNet 3 layers | 0.55 x 10⁻⁴ | 0.92 x 10⁻⁴ | 4.92 x 10⁻⁴ | 0.75 [0.74, 0.76] | 0.99 [0.99, 0.99] |
+| ConvLSTM | 17.6 x 10⁻⁴ | 13.8 x 10⁻⁴ | 17.6 x 10⁻⁴ | 0.30 [0.29, 0.32] | 0.73 [0.71, 0.75] |
+| Copy of the last frame | 15.7 x 10⁻⁴ | 15.9 x 10⁻⁴ | 12.0 x 10⁻⁴ | 0.51 [0.50, 0.52] | 0.35 [0.32, 0.38] |
+
+- For the 3, 4, and 5 layer PredNets, a hidden bounce costs about 1.5 times the error of an ordinary occlusion, and the same return without a wall about 6 to 9 times, although its frames are easier for the copy. A wall makes the same look far less surprising, which suggests that these models use where the bar stands. The concat model also separates `direction` from the hidden bounce, with a smaller ratio (2.3).
+- Whether the 1.5 fold rise after a hidden bounce is a small surprise or harder frames cannot be told here: the frames differ.
+- The AUROC alone would overstate this contrast: the ConvLSTM also gets 0.73 for `direction` AB against the hidden bounce, without any surprise of its own, because its error is lower on the hidden bounce scenes (13.8 against 17.6 x 10⁻⁴ for occlusion). The same goes for the MSE over the bar region, where the frames differ the most (hidden bounce against occlusion: 0.80 for the copy, 0.89 for the ConvLSTM, 0.91 to 0.93 for the PredNets), so that signal is not used for this contrast.
+
+**The error units respond at every layer, in different proportions.** The AUROC per layer alone is misleading here. It ranks all the AB against all the B, so it also falls when the activity of a layer varies between tuples more than AB and B differ. Layer 1 of the 5 layer model has an AUROC of 0.60 on `direction`, and AB is higher in 100% of the tuples: its error rises only 4%, but consistently, on a large baseline. So a layer's low AUROC means a small rise, not an absent one. PredNet 5 layers, AB against B, whole frame:
+
+| Layer | Rise on `direction`, one frame into the window | Share of tuples with AB higher: direction | offset | early | speed fast | speed slow | vanish | AUROC: direction | vanish |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | x 3.5 | 100% | 100% | 99.7% | 100% | 100% | 100% | 0.99 | 1.00 |
+| 1 | + 4% | 100% | 100% | 100% | 99.5% | 100% | 100% | 0.60 | 0.58 |
+| 2 | + 7% | 99.7% | 100% | 100% | 64.5% | 100% | 100% | 0.70 | 0.88 |
+| 3 | + 43% | 94.7% | 100% | 100% | 100% | 83.0% | 100% | 0.91 | 1.00 |
+| 4 | + 72% | 93.0% | 93.8% | 100% | 100% | 74.0% | 100% | 0.89 | 1.00 |
+
+- Layer 0 follows the pixels, as expected. The rise is largest there and in the deepest layers, so the surprise is not only a pixel mismatch: it reaches the top of the hierarchy, where the errors compare representations.
+- The kinds differ in depth for 5 layers: `speed_slow`, where nothing has appeared yet in the window's first frames, is weakest in layers 3 and 4; `speed_fast` is weakest in layer 2. A fixed window hides any difference in timing between layers, so this is only a lead for step 3.5.
+- On `vanish`, AB is higher in 100% of the tuples at every layer of every model.
+
+![Error units per layer](../runs/analysis/test_v1/surprise/layers.png)
+
+<sub>`test_v1`: for each model with error units (the concat model computes them without passing them on), AB against B per layer: the share of tuples with AB higher, on the whole frame (top) and over the bar (middle), and the AUROC on the whole frame (bottom), with 95% intervals; one line per surprise kind.</sub>
+
+**H3 holds for every PredNet, with or without explicit error units, and not for the ConvLSTM.** On identical frames, a surprising history raises the prediction error in nearly every tuple, and the error alone tells AB from B almost perfectly. The strongest evidence is `vanish`: an error about 150 times larger with nothing in the image to cause it.
+
+**Limits.** One seed per model, and the intervals are over tuples: they say nothing about the spread between trainings. The AUROC is at its ceiling, so it does not rank models or kinds. The surprise index is in units of each signal: values of different layers cannot be compared directly. The window is fixed and ends before the response does on most kinds. The hidden bounce contrast is unpaired. The choice to show the share of tuples in the layer figure and the printed table came after reading the `test_v1` output; the share was already saved in `index.csv`, and no number changed.
+
+**Decisions.** RQ3 is answered for this sweep. Step 3.5 reads the state and the error units layer by layer over time, which can test the differences in timing that this fixed window hides.

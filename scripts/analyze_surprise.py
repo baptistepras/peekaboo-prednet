@@ -77,14 +77,16 @@ def report(tables: dict[str, pd.DataFrame]) -> None:
 
     layers = index[index["signal"].str.match(r"e\d") & (index["pair"] == "AB - B") & (index["kind"] == "model")]
     if len(layers):
-        print("\nerror units: AUROC of AB against B per layer (whole frame, then bar)")
-        lines = []
-        for (who, signal), own in layers.groupby(["who", "signal"], sort=False):
-            row = {"line": who, "signal": signal}
-            row.update({kind: f"{own.loc[own['event'] == kind, 'auroc'].iloc[0]:.2f}" for kind in KINDS
-                        if (own["event"] == kind).any()})
-            lines.append(row)
-        print(pd.DataFrame(lines).to_string(index=False))
+        for what, column in (("share of tuples where AB is higher (paired)", "higher"),
+                             ("AUROC (also falls when the layer varies between tuples)", "auroc")):
+            print(f"\nerror units per layer, AB against B: {what}; whole frame, then bar")
+            lines = []
+            for (who, signal), own in layers.groupby(["who", "signal"], sort=False):
+                row = {"line": who, "signal": signal}
+                row.update({kind: f"{own.loc[own['event'] == kind, column].iloc[0]:.2f}" for kind in KINDS
+                            if (own["event"] == kind).any()})
+                lines.append(row)
+            print(pd.DataFrame(lines).to_string(index=False))
 
 
 def main() -> int:
@@ -119,7 +121,7 @@ def main() -> int:
                f"AUROC of the window signal, impossible against possible member (95% paired bootstrap intervals; "
                f"{args.data})")
     plot_layers(tables["index"], out / "layers.png",
-                f"AUROC of the error units of every layer, AB against B (95% intervals; {args.data})")
+                f"error units of every layer, AB against B (AUROC with 95% intervals; {args.data})")
     plot_curves(tables["curves"], out / "curves.png",
                 f"signals against the frames since the window start (gray band: the window; {args.data})")
     report(tables)

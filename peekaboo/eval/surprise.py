@@ -16,7 +16,8 @@ Signals: the next frame MSE on the whole frame and over the bar region (every mo
 frame), and for PredNet the mean activity of the error units of every layer, on the whole frame and over the bar.
 Per tuple, the surprise index is the signal of AB minus that of B, averaged over the window; the AUROC says how well
 the signal tells AB from B, with a paired bootstrap interval over tuples. With several seeds, the AUROC is taken on
-the seed means of every tuple.
+the seed means of every tuple. The AUROC ranks all the AB against all the B, so it also falls when the signal varies
+between tuples more than AB and B differ; the share of tuples where AB is higher is the paired reading.
 
 The key contrast (critique C13): a digit that comes back out on its entry side is impossible without a wall
 (`direction`) and expected with one (the hidden bounce cells). The same window, at the reappearance, compares the
@@ -242,31 +243,35 @@ def plot_auroc(index: pd.DataFrame, contrasts: pd.DataFrame, path: Path, title: 
 
 
 def plot_layers(index: pd.DataFrame, path: Path, title: str) -> Path:
-    """For every model with error units: the AUROC of AB against B of each layer's error activity, on the whole frame
-    (top) and over the bar (bottom), one line per surprise kind."""
+    """For every model with error units, per layer and surprise kind, AB against B: the share of tuples where AB is
+    higher, on the whole frame and over the bar (paired, on the same frames), and the AUROC on the whole frame, which
+    also falls when the activity of the layer varies between tuples more than AB and B differ."""
     rows = index[(index["scope"] == "all") & (index["pair"] == "AB - B") & (index["kind"] == "model")
                  & index["signal"].str.match(r"e\d")]
     models = list(rows["who"].unique())
-    fig = Figure(figsize=(3.2 * max(len(models), 1) + 1, 6.4))
-    axes = fig.subplots(2, max(len(models), 1), squeeze=False)
+    panels = (("higher", "", "share of tuples with AB higher"), ("higher", "_bar", "the same, over the bar"),
+              ("auroc", "", "AUROC"))
+    fig = Figure(figsize=(3.2 * max(len(models), 1) + 1, 9.6))
+    axes = fig.subplots(len(panels), max(len(models), 1), squeeze=False)
     for c, who in enumerate(models):
-        for r, suffix in enumerate(("", "_bar")):
+        for r, (measure, suffix, label) in enumerate(panels):
             ax = axes[r, c]
             own = rows[(rows["who"] == who) & rows["signal"].str.fullmatch(r"e\d" + suffix)]
             for i, kind in enumerate(KINDS):
                 line = own[own["event"] == kind].copy()
                 line["layer"] = line["signal"].str[1].astype(int)
                 line = line.sort_values("layer")
-                ax.errorbar(line["layer"], line["auroc"], yerr=spread(line),
+                ax.errorbar(line["layer"], line[measure], yerr=spread(line) if measure == "auroc" else None,
                             fmt="o-", ms=3, lw=1.0, color=f"C{i}", label=kind_name(kind))
             ax.axhline(0.5, color="0.6", lw=0.8, ls=":")
             ax.set_ylim(0.0, 1.02)
+            ax.set_xticks(range(own["signal"].nunique()))
             ax.set_xlabel("layer", fontsize=8)
             ax.tick_params(labelsize=7)
             if r == 0:
                 ax.set_title(who, fontsize=8)
             if c == 0:
-                ax.set_ylabel("AUROC, error units" + (" over the bar" if suffix else ""), fontsize=8)
+                ax.set_ylabel(label, fontsize=8)
     axes[0, -1].legend(fontsize=6)
     fig.suptitle(title, fontsize=9)
     fig.tight_layout()
