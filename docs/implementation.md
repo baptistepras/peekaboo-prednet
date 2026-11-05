@@ -36,7 +36,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 2.10 | Training sweep: every model with the same settings and seed (15k steps), launched one run at a time with `scripts/sweep.py`, and compared with `scripts/compare_sweep.py`: every PredNet passes the gate and keeps the hidden digit, the ConvLSTM does not draw it (see [Experiments, step 2.10](experiments.md#step-210-training-sweep)) | done |
 | 3.1 | Development set `dev_v1` and the extraction pass: each model runs once over a set, everything the analyses need saved per frame | done |
 | 3.2 | Statistics over sequences and seeds (bootstrap, paired differences, AUROC) and tracking through occlusion (RQ1): the state against the frames since the onset, its decay, and the predicted frames when the digit comes out: the PredNets keep the hidden digit without measurable loss up to 12 hidden frames and draw it back on time, the ConvLSTM does not (see [Experiments, step 3.2](experiments.md#step-32-tracking-through-occlusion-rq1)) | done |
-| 3.3 to 3.8 | Correction after the reappearance (RQ2), surprise (RQ3), inside the state, blackout and closed loop, more seeds, results | planned |
+| 3.3 | Correction after the reappearance (RQ2): the readouts aligned on the reappearance frame, expected against surprising (AB against B on identical frames), and the latency with a threshold per model | in progress |
+| 3.4 to 3.8 | Surprise (RQ3), inside the state, blackout and closed loop, more seeds, results | planned |
 
 ## Conventions
 
@@ -505,7 +506,7 @@ The statistics of the Phase 3 analyses. A per frame table has many correlated fr
 
 #### `peekaboo/eval/tables.py`
 
-The extraction tables as the analyses read them. `available_runs(runs_dir, data)` finds every seed of every sweep model with a complete pass on a set (the failed runs kept as records are left out) and refuses a pass with older columns; `read_runs(runs, baselines, conditions, columns, roles)` reads their rows of some conditions (and tuple roles: `none` for the sequences of the cells), with `model` and `seed`, joined with the baselines of the set; `add_errors` adds the error of every position readout on y, x, and the distance (`probe_err_y`, `kalman_err`, ...); `per_sequence(table, column)` gives one value per seed and sequence, as `stats.py` takes them.
+The extraction tables as the analyses read them. `available_runs(runs_dir, data)` finds every seed of every sweep model with a complete pass on a set (the failed runs kept as records are left out) and refuses a pass with older columns; `read_runs(runs, baselines, conditions, columns, roles, rows)` reads their rows of some conditions (and tuple roles: `none` for the sequences of the cells; `rows` keeps only the rows matching one of several lists of parquet conditions), with `model` and `seed`, joined with the baselines of the set; `add_errors` adds the error of every position readout on y, x, and the distance (`probe_err_y`, `kalman_err`, ...); `per_sequence(table, column)` gives one value per seed and sequence, as `stats.py` takes them.
 
 #### `peekaboo/eval/occlusion.py`
 
@@ -517,6 +518,16 @@ Tracking through occlusion (RQ1). The sequences are those of the occlusion cells
 - `decay(table)`: the slope of every readout against j over the hidden frames of each sequence (H1b predicts that the error grows with the duration) and its value at the last hidden frame, per k.
 - `emergence_rows`, `emergence(table)`, and `timing(table)`: the predicted frames when the digit comes out (C1: a hidden digit is not to be drawn, so these are the frames that show whether the model kept it), from 2 frames before the reappearance to 3 after. The exit side is the side of the bar with the more true ink on the reappearance frame (for a hidden bounce, the entry side; the bar stands against the wall there, so the other side has no room and the share on the exit side is 1 by construction). Measures: the ink drawn on the exit side, against the true frame and the copy of the last frame (the true exit ink of the previous frame); the share of the drawn ink off the bar that is on the exit side; the readout of the drawn digit against its visible center, against the copy's (the visible center of the previous frame); the share of visible frames with a drawn digit; and the MSE over the bar region, against the copy and the blank frame. The summary averages the reappearance frame and the next two. The timing compares the first frame with at least one pixel of ink on the exit side, drawn and true: early, on time, late, or never within the 3 frames after the reappearance; the copy is one frame late by construction, the blank frame never comes out. The true digit often shows a few faint edge pixels on the frame before (well under one pixel of ink), so a model that crosses the threshold one frame early is still close to the truth.
 - `plot_curves`, `plot_speeds`, `plot_decay`, and `plot_emergence`: the figures, one panel per k (and speed), the hidden frames shaded, every model with its standard error band, the random initialization control of the reference model, and the references in gray. Each model keeps its color in every figure. The share on the exit side is only in the tables: from the reappearance on, it is 1 for every model.
+
+#### `peekaboo/eval/correction.py`
+
+Correction after the reappearance (RQ2). Everything is aligned on the actual reappearance frame (j = 0, the first frame with visible ink), from 3 frames before to 7 after, in the analysis window. Expected reappearances are the sequences of the occlusion and hidden bounce cells; surprising ones are the impossible members of the surprise tuples, each against the possible member that ends with the same frames: AB against B, and BA against A as the mirror (for `vanish`, AB never reappears, and its BA, where the digit appears from nowhere, is compared with A). The members of a tuple take the kind of the tuple as their event, and the k and speed of A.
+
+- `READOUTS`: the probe's distance to the true center (against the Kalman filters, which correct at the first detection), the drawn digit's distance to the visible ink center (critique C9: the readout of the predicted frame against the modal truth; against the copy of the last frame, whose readout is the visible center of the previous frame), the MSE in the box around the digit (against the copy and the blank frame), and the decoder correlation (curves only).
+- `thresholds(rows)`: tau per model or reference and readout (decision D14): the 90% quantile of its error on the fully visible frames before the onset of the occlusion and hidden bounce cells, from frame 2 on (the first two frames are predicted with no motion seen, and the probes are fitted without them), at least 3 px for the two distances. The random initialization controls get no latency, nor do the copy and the blank frame on the MSE: they never correct, and against a threshold taken from their own large error their latency would be 0.
+- `latency(rows, column, tau)`: per sequence, the first frame j from 0 on from which the error stays at or below tau for 2 frames in a row, within the first 6 frames (an undefined readout, such as no digit drawn, is not below). A sequence that never gets there is censored and counts as 5 frames (a restricted mean); one whose window ends before it can tell is left out (short). Also the mean error over the 6 frames.
+- `correction(table, reference)`: the thresholds, the curves against j per event and role, the latency summary per event, role, k, and speed (shares found, censored, and short; restricted mean latency and mean error with bootstrap intervals), and the paired differences of each surprising member against its control on the same tuples and of each model against the reference model.
+- `plot_curves` and `plot_latency`: one column per event, the surprising member and its control dashed; the latencies per event, filled for the surprising member and open for its control.
 
 #### `peekaboo/eval/compare.py`
 
@@ -605,6 +616,7 @@ peekaboo/           the package
     stats.py        bootstrap, paired differences, AUROC
     tables.py       the extraction tables as the analyses read them
     occlusion.py    tracking through occlusion (RQ1)
+    correction.py   correction after the reappearance (RQ2)
   train/            training
     loop.py         training loop, validation, resume
     sweep.py        training sweep: runs, stages, state, checks
@@ -640,6 +652,7 @@ scripts/            command line entry points
   compare_sweep.py      comparison of the sweep models
   extract.py            per frame extraction for the Phase 3 analyses
   analyze_occlusion.py  tracking through occlusion (RQ1)
+  analyze_correction.py correction after the reappearance (RQ2)
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set

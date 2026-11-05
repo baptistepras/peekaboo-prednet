@@ -44,12 +44,13 @@ COLUMNS = ["sequence", "t", "y", "x", "in_window", "condition", "k", "speed", "s
 
 @dataclass(frozen=True)
 class Readout:
-    """A per frame readout of the model, with its random initialization control and its programmed references."""
+    """A per frame readout of the model, with its random initialization control (if any) and its programmed
+    references."""
 
     name: str
     column: str
     label: str
-    random: str
+    random: str | None
     references: dict[str, str] = field(default_factory=dict)  # label: column, the same for every model
 
     def lines(self, rows: pd.DataFrame) -> list[tuple[str, str, str, pd.DataFrame]]:
@@ -58,7 +59,8 @@ class Readout:
         out = []
         for model, own in rows.groupby("model", sort=False):
             out.append((model, "model", self.column, own))
-            out.append((f"{model}, random init", "random", self.random, own))
+            if self.random is not None:
+                out.append((f"{model}, random init", "random", self.random, own))
         if len(rows):
             first = rows[rows["model"] == rows["model"].iloc[0]]
             out += [(label, "reference", column, first) for label, column in self.references.items()]

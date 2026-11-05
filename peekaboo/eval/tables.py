@@ -62,11 +62,13 @@ def available_runs(runs_dir: Path, data: str) -> list[ModelRun]:
 
 
 def read_runs(runs: list[ModelRun], baselines: Path, conditions: list[str], columns: list[str] | None = None,
-              roles: list[str] | None = None) -> pd.DataFrame:
+              roles: list[str] | None = None, rows: list[list[tuple]] | None = None) -> pd.DataFrame:
     """The rows of the given conditions (and tuple roles, all by default: "none" for the sequences of the cells) for
     every run, with `model` and `seed`, joined with the baselines and with the error of every position readout
-    (add_errors)."""
-    filters = [("condition", "in", conditions)] + ([("tuple_role", "in", roles)] if roles else [])
+    (add_errors). `rows` keeps only the rows that match one of its alternatives, each a list of parquet conditions
+    (for example [[("since_onset", "<", 0)], [("in_window", "==", True)]])."""
+    base = [("condition", "in", conditions)] + ([("tuple_role", "in", roles)] if roles else [])
+    filters = [base + list(alternative) for alternative in rows] if rows else base
     parts = [read_frames(run.folder, columns, filters).assign(model=run.label, seed=run.seed) for run in runs]
     table = pd.concat(parts, ignore_index=True)
     trackers = read_frames(baselines)
