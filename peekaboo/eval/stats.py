@@ -15,6 +15,7 @@ from functools import lru_cache
 
 import numpy as np
 import pandas as pd
+from scipy.stats import rankdata
 
 LEVEL = 0.95        # coverage of every interval
 RESAMPLES = 2000    # bootstrap resamples
@@ -93,35 +94,51 @@ def paired_difference(a: pd.Series | pd.DataFrame, b: pd.Series | pd.DataFrame, 
     return bootstrap(difference, **options)
 
 
+def auroc_rows(positive: np.ndarray, negative: np.ndarray) -> np.ndarray:
+    """The AUROC of every row of (rows, positives) and (rows, negatives) finite scores, from the ranks of each row,
+    ties counted half (Mann-Whitney)."""
+    n_pos, n_neg = positive.shape[1], negative.shape[1]
+    ranks = rankdata(np.concatenate([positive, negative], axis=1), axis=1)
+    return (ranks[:, :n_pos].sum(axis=1) - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
+
+
 def auroc(positive: np.ndarray, negative: np.ndarray) -> float:
     """Area under the ROC curve of a score that should be higher for the positive cases: the probability that a
-    random positive scores above a random negative, ties counted half (Mann-Whitney)."""
+    random positive scores above a random negative, ties counted half (Mann-Whitney). NaN values are left out."""
     positive, negative = np.asarray(positive, dtype=np.float64), np.asarray(negative, dtype=np.float64)
     positive, negative = positive[np.isfinite(positive)], negative[np.isfinite(negative)]
     if len(positive) == 0 or len(negative) == 0:
         return np.nan
-    ranks = pd.Series(np.concatenate([positive, negative])).rank().to_numpy()
-    return float((ranks[:len(positive)].sum() - len(positive) * (len(positive) + 1) / 2)
-                 / (len(positive) * len(negative)))
+    return float(auroc_rows(positive[None], negative[None])[0])
 
 
 def bootstrap_auroc(positive: np.ndarray, negative: np.ndarray, paired: bool = True, level: float = LEVEL,
                     resamples: int = RESAMPLES, seed: int = SEED) -> dict[str, float]:
     """AUROC with a percentile bootstrap interval. Paired cases (the same tuple gives one positive and one negative,
-    in the same order) are resampled together; otherwise each group is resampled on its own."""
+    in the same order) are resampled together, and a pair with a NaN is left out; otherwise each group is resampled
+    on its own, without its NaN values. The resamples are drawn CHUNK at a time."""
     positive, negative = np.asarray(positive, dtype=np.float64), np.asarray(negative, dtype=np.float64)
-    if paired and len(positive) != len(negative):
-        raise ValueError("paired cases need as many positives as negatives")
+    if paired:
+        if len(positive) != len(negative):
+            raise ValueError("paired cases need as many positives as negatives")
+        keep = np.isfinite(positive) & np.isfinite(negative)
+        positive, negative = positive[keep], negative[keep]
+    else:
+        positive, negative = positive[np.isfinite(positive)], negative[np.isfinite(negative)]
+    n_pos, n_neg = len(positive), len(negative)
+    if n_pos == 0 or n_neg == 0:
+        return {"auroc": np.nan, "low": np.nan, "high": np.nan, "n": 0}
     rng = np.random.default_rng(seed)
     values = np.empty(resamples)
-    for i in range(resamples):
+    for start in range(0, resamples, CHUNK):
+        size = min(CHUNK, resamples - start)
         if paired:
-            pick = rng.integers(0, len(positive), len(positive))
-            values[i] = auroc(positive[pick], negative[pick])
+            pick = rng.integers(0, n_pos, (size, n_pos))
+            values[start:start + size] = auroc_rows(positive[pick], negative[pick])
         else:
-            values[i] = auroc(positive[rng.integers(0, len(positive), len(positive))],
-                              negative[rng.integers(0, len(negative), len(negative))])
+            values[start:start + size] = auroc_rows(positive[rng.integers(0, n_pos, (size, n_pos))],
+                                                    negative[rng.integers(0, n_neg, (size, n_neg))])
     tail = (1.0 - level) / 2
-    low, high = np.nanquantile(values, [tail, 1.0 - tail])
+    low, high = np.quantile(values, [tail, 1.0 - tail])
     return {"auroc": auroc(positive, negative), "low": float(low), "high": float(high),
-            "n": int(min(len(positive), len(negative)) if paired else len(positive) + len(negative))}
+            "n": int(n_pos if paired else n_pos + n_neg)}

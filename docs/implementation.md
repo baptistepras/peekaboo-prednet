@@ -37,7 +37,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 3.1 | Development set `dev_v1` and the extraction pass: each model runs once over a set, everything the analyses need saved per frame | done |
 | 3.2 | Statistics over sequences and seeds (bootstrap, paired differences, AUROC) and tracking through occlusion (RQ1): the state against the frames since the onset, its decay, and the predicted frames when the digit comes out: the PredNets keep the hidden digit without measurable loss up to 12 hidden frames and draw it back on time, the ConvLSTM does not (see [Experiments, step 3.2](experiments.md#step-32-tracking-through-occlusion-rq1)) | done |
 | 3.3 | Correction after the reappearance (RQ2): the readouts aligned on the reappearance frame, expected against surprising (AB against B on identical frames), and the latency with a threshold per model: the PredNets need 1 to 3 frames to redraw the digit after a surprise and their probe stays on the old trajectory, the ConvLSTM is not affected (see [Experiments, step 3.3](experiments.md#step-33-correction-after-the-reappearance-rq2)) | done |
-| 3.4 to 3.8 | Surprise (RQ3), inside the state, blackout and closed loop, more seeds, results | planned |
+| 3.4 | Surprise (RQ3): the next frame MSE and the error units of every layer in a window after the first frame where the impossible member departs from its history, AB against B on identical frames, with the surprise index, the AUROC, and the key contrast of the hidden bounce (C13) | in progress |
+| 3.5 to 3.8 | Inside the state, blackout and closed loop, more seeds, results | planned |
 
 ## Conventions
 
@@ -502,11 +503,11 @@ The statistics of the Phase 3 analyses. A per frame table has many correlated fr
 - `mean_se(values)`: mean, standard error, and number of sequences; the standard error is over sequences for one seed, over the seed means for several. Used for the curves.
 - `bootstrap(values)`: the mean with a 95% percentile bootstrap interval (2000 resamples, seed 0): the sequences are resampled, the same for every seed, and the seeds too when there are several. Values are a vector (one seed) or a matrix with one row per seed and one column per sequence.
 - `paired_difference(a, b)`: the same for a - b on the sequences both have (b may be a baseline, the same for every seed).
-- `auroc(positive, negative)` and `bootstrap_auroc(positive, negative, paired)`: the area under the ROC curve (Mann-Whitney, ties counted half) with its interval, resampling the tuples together when the cases are paired (step 3.4).
+- `auroc(positive, negative)` and `bootstrap_auroc(positive, negative, paired)`: the area under the ROC curve (Mann-Whitney, ties counted half) with its interval, resampling the tuples together when the cases are paired (a pair with a missing value is left out); the resamples are scored by ranks, 250 at a time.
 
 #### `peekaboo/eval/tables.py`
 
-The extraction tables as the analyses read them. `available_runs(runs_dir, data)` finds every seed of every sweep model with a complete pass on a set (the failed runs kept as records are left out) and refuses a pass with older columns; `read_runs(runs, baselines, conditions, columns, roles, rows)` reads their rows of some conditions (and tuple roles: `none` for the sequences of the cells; `rows` keeps only the rows matching one of several lists of parquet conditions), with `model` and `seed`, joined with the baselines of the set; `add_errors` adds the error of every position readout on y, x, and the distance (`probe_err_y`, `kalman_err`, ...); `per_sequence(table, column)` gives one value per seed and sequence, as `stats.py` takes them.
+The extraction tables as the analyses read them. `available_runs(runs_dir, data)` finds every seed of every sweep model with a complete pass on a set (the failed runs kept as records are left out) and refuses a pass with older columns; `read_runs(runs, baselines, conditions, columns, roles, rows)` reads their rows of some conditions (and tuple roles: `none` for the sequences of the cells; `rows` keeps only the rows matching one of several lists of parquet conditions), with `model` and `seed`, joined with the baselines of the set (columns a pass does not have, such as the error units of the ConvLSTM, are NaN in its rows; `extract.frame_columns(folder)` lists those it has); `add_errors` adds the error of every position readout on y, x, and the distance (`probe_err_y`, `kalman_err`, ...); `per_sequence(table, column)` gives one value per seed and sequence, as `stats.py` takes them.
 
 #### `peekaboo/eval/occlusion.py`
 
@@ -528,6 +529,17 @@ Correction after the reappearance (RQ2). Everything is aligned on the actual rea
 - `latency(rows, column, tau)`: per sequence, the first frame j from 0 on from which the error stays at or below tau for 2 frames in a row, within the first 6 frames (an undefined readout, such as no digit drawn, is not below). A sequence that never gets there is censored and counts as 5 frames (a restricted mean); one whose window ends before it can tell is left out (short). Also the mean error over the 6 frames.
 - `correction(table, reference)`: the thresholds, the curves against j per event and role, the latency summary per event, role, k, and speed (shares found, censored, and short; restricted mean latency and mean error with bootstrap intervals), and the paired differences of each surprising member against its control on the same tuples and of each model against the reference model.
 - `plot_curves` and `plot_latency`: one column per event, the surprising member and its control dashed; the latencies per event, filled for the surprising member and open for its control.
+
+#### `peekaboo/eval/surprise.py`
+
+Surprise (RQ3). Each surprise tuple gives the controlled comparison of PLATO (C3): the impossible member AB and the possible member B show the same frames from the splice on and differ only in their history; BA against A is the mirror. For `vanish`, AB is the digit that never comes back and B the same scene without a digit (the `empty` condition); its BA is the digit that appears from nowhere. The members take the kind of the tuple, and the k and speed of A.
+
+- The window: `WINDOW` = 5 frames from the first frame where AB departs from what its history announces, the earlier of the reappearances of A (expected by AB's history) and of B (shown by AB). This is the actual reappearance when the digit comes early or on time, and the expected one when it comes late or never. The splice is hidden in both members, so the window starts after it, and the copy of the last frame sees the same frames in AB and B (its index is exactly 0, a check).
+- `SIGNALS`: the next frame MSE on the whole frame and over the bar region (every model, next to the copy and the blank frame), and the mean activity of the error units of every layer, on the whole frame and over the bar (PredNet and its ablations; the ConvLSTM has none).
+- `surprise_index(table)`: per kind, pair (AB - B, BA - A), signal, and line, the surprise index (the window mean of the impossible member minus that of its control, with a bootstrap interval over tuples), the AUROC of the window mean with a paired bootstrap interval (on the seed means of every tuple), and the share of tuples where the impossible member is higher. The MSE is also read per k and speed of A.
+- `contrast(table)`: the key contrast (C13): a digit that comes back out on its entry side is impossible without a wall (`direction`) and expected with one (the hidden bounce cells). The unpaired AUROC of the window signal at the reappearance, hidden bounce against occlusion and `direction` AB against hidden bounce.
+- `curves(table)`: every signal against the frames since the window start, from 3 before to 7 after, per kind and role.
+- `plot_auroc`, `plot_layers`, and `plot_curves`: the AUROC per kind and model (filled AB against B, open BA against A, and the contrast), the AUROC of the error units per layer, and the curves of AB with B dashed, the window shaded.
 
 #### `peekaboo/eval/compare.py`
 
@@ -617,6 +629,7 @@ peekaboo/           the package
     tables.py       the extraction tables as the analyses read them
     occlusion.py    tracking through occlusion (RQ1)
     correction.py   correction after the reappearance (RQ2)
+    surprise.py     surprise (RQ3)
   train/            training
     loop.py         training loop, validation, resume
     sweep.py        training sweep: runs, stages, state, checks
@@ -653,6 +666,7 @@ scripts/            command line entry points
   extract.py            per frame extraction for the Phase 3 analyses
   analyze_occlusion.py  tracking through occlusion (RQ1)
   analyze_correction.py correction after the reappearance (RQ2)
+  analyze_surprise.py   surprise (RQ3)
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set

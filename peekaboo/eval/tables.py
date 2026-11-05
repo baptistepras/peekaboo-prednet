@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from peekaboo.eval.extract import FRAMES_FORMAT, is_complete, pass_format, read_frames
+from peekaboo.eval.extract import FRAMES_FORMAT, frame_columns, is_complete, pass_format, read_frames
 from peekaboo.train.sweep import FAILED, SWEEP
 
 KEYS = ["sequence", "t"]
@@ -66,10 +66,12 @@ def read_runs(runs: list[ModelRun], baselines: Path, conditions: list[str], colu
     """The rows of the given conditions (and tuple roles, all by default: "none" for the sequences of the cells) for
     every run, with `model` and `seed`, joined with the baselines and with the error of every position readout
     (add_errors). `rows` keeps only the rows that match one of its alternatives, each a list of parquet conditions
-    (for example [[("since_onset", "<", 0)], [("in_window", "==", True)]])."""
+    (for example [[("since_onset", "<", 0)], [("in_window", "==", True)]]). Columns a pass does not have (the error
+    units of a model without them) are left out of its rows, and NaN in the joined table."""
     base = [("condition", "in", conditions)] + ([("tuple_role", "in", roles)] if roles else [])
     filters = [base + list(alternative) for alternative in rows] if rows else base
-    parts = [read_frames(run.folder, columns, filters).assign(model=run.label, seed=run.seed) for run in runs]
+    parts = [read_frames(run.folder, None if columns is None else [c for c in columns if c in frame_columns(
+        run.folder)], filters).assign(model=run.label, seed=run.seed) for run in runs]
     table = pd.concat(parts, ignore_index=True)
     trackers = read_frames(baselines)
     table = table.merge(trackers[trackers["sequence"].isin(table["sequence"].unique())], on=KEYS, how="left")

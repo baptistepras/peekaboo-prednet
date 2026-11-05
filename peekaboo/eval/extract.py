@@ -27,6 +27,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
@@ -295,6 +296,12 @@ def pass_format(folder: Path) -> int | None:
     """The column version a pass was written with, or None without an info.json."""
     info_path = folder / "info.json"
     return json.loads(info_path.read_text(encoding="utf-8"))["settings"].get("format") if info_path.exists() else None
+
+
+def frame_columns(folder: Path) -> list[str]:
+    """The columns of a pass, from the schema of its first chunk (they differ between models: only PredNet has the
+    error units of every layer)."""
+    return pq.read_schema(sorted(folder.glob("part_*.parquet"))[0]).names
 
 
 def read_frames(folder: Path, columns: list[str] | None = None, filters: list[tuple] | None = None) -> pd.DataFrame:

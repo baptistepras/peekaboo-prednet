@@ -1,8 +1,9 @@
 """Tests for the statistics of Phase 3: bootstrap intervals of known distributions, paired differences, the seed
-level, and the AUROC."""
+level, and the AUROC (paired and not, with missing values)."""
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from peekaboo.eval.stats import auroc, bootstrap, bootstrap_auroc, mean_se, paired_difference
 
@@ -53,3 +54,16 @@ def test_auroc() -> None:
     assert np.isclose(auroc(positive, negative), pairs)
     stats = bootstrap_auroc(positive, negative, resamples=300)
     assert stats["low"] <= stats["auroc"] <= stats["high"] and stats["n"] == 60
+
+
+def test_bootstrap_auroc_pairs_and_missing_values() -> None:
+    """A pair with a NaN is left out when paired, each NaN on its own when not; resamples that do not fill the last
+    chunk work, and no case gives NaN."""
+    positive, negative = np.array([2.0, 3.0, np.nan, 5.0]), np.array([1.0, np.nan, 0.0, 4.0])
+    paired = bootstrap_auroc(positive, negative, resamples=301)
+    assert paired["n"] == 2 and paired["auroc"] == 0.75 and paired["low"] <= 0.75 <= paired["high"]
+    unpaired = bootstrap_auroc(positive, negative, paired=False, resamples=301)
+    assert unpaired["n"] == 6 and np.isclose(unpaired["auroc"], 7 / 9)
+    assert np.isnan(bootstrap_auroc(np.array([np.nan]), np.array([1.0]))["auroc"])
+    with pytest.raises(ValueError):
+        bootstrap_auroc(np.ones(3), np.ones(2))
