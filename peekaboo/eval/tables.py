@@ -80,10 +80,10 @@ def read_runs(runs: list[ModelRun], baselines: Path, conditions: list[str], colu
 
 def add_errors(table: pd.DataFrame) -> pd.DataFrame:
     """For every position readout present, its absolute error on y and x against the true center (<name>_err_y,
-    _err_x) and its distance to it (<name>_err)."""
+    _err_x) and its distance to it (<name>_err). Nothing when the true center was not read."""
     columns = {}
     for name, (y, x) in POSITIONS.items():
-        if x not in table:
+        if x not in table or "x" not in table:
             continue
         columns[f"{name}_err_x"] = (table[x] - table["x"]).abs()
         if y is not None:

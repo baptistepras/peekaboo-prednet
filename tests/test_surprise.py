@@ -138,7 +138,8 @@ def test_figures(tables: dict[str, pd.DataFrame], tmp_path: Path) -> None:
 
 def test_rows_read_from_passes(tmp_path: Path) -> None:
     """Every frame of the tuple members and the cell frames around the reappearance are read, and a pass without
-    error units gives NaN in their columns."""
+    error units gives NaN in their columns. The baselines have positions but the true center is not read, so no
+    position error is added."""
     table = fake_table()
     baselines = tmp_path / "baselines"
     runs = []
@@ -147,7 +148,7 @@ def test_rows_read_from_passes(tmp_path: Path) -> None:
         folder = tmp_path / model
         runs.append(ModelRun("fake", model, 0, folder))
         for path, frame in ((folder, own[[c for c in COLUMNS if c in own and own[c].notna().any()]]),
-                            (baselines, own[["sequence", "t"]].assign(bar_width=4))):
+                            (baselines, own[["sequence", "t"]].assign(kalman_y=30.0, kalman_x=20.0))):
             path.mkdir(exist_ok=True)
             frame.to_parquet(path / "part_000000.parquet", index=False)
             (path / "info.json").write_text(json.dumps({"settings": {"format": FRAMES_FORMAT}, "complete": True}))
@@ -156,3 +157,4 @@ def test_rows_read_from_passes(tmp_path: Path) -> None:
     assert cells["since_reappear"].between(-BEFORE, AFTER).all() and len(cells) == 2 * 8 * (BEFORE + AFTER + 1)
     assert len(read[read["tuple_role"] != "none"]) == 2 * 9 * 4 * STEPS
     assert read.loc[read["model"] == "M1", "e0"].notna().all() and read.loc[read["model"] == "M2", "e0"].isna().all()
+    assert "kalman_x" in read and "kalman_err" not in read
