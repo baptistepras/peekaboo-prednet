@@ -78,6 +78,8 @@ The PredNets' error grows by at most 0.06 px per hidden frame, and they draw the
   <img src="runs/analysis/test_v1/occlusion/decay.png" alt="Probe error at the last hidden frame, its slope over the hidden frames, and the decoder correlation, against the number of hidden frames" width="100%">
 </p>
 
+**After a surprising reappearance, the PredNets need a few frames to give up their expectation (RQ2).** Each impossible sequence of a surprise tuple is compared with a possible one that ends with exactly the same frames. After a reappearance on the wrong side, the 5 layer model draws the digit where it expected it, then in its new place about 3 frames later (2.7 frames more than on the same frames with an ordinary history, [2.6, 2.9]); after a 12 px offset, 2 frames later; after a timing surprise, 1. Its probe stays on the old trajectory longer still: about 16 px off over the next 6 frames, against 1 px on the identical control frames. The ConvLSTM draws the same frames whatever the history, one frame late as a copy would: with nothing expected, nothing surprises it.
+
 The full analysis is in [docs/experiments.md](docs/experiments.md).
 
 ## Status
@@ -87,8 +89,8 @@ The full analysis is in [docs/experiments.md](docs/experiments.md).
 | 1 | Occlusion generator, surprise tuples, ground truth, validation and test sets, PredNet | done |
 | 2.1 to 2.9 | Training, evaluation, prediction figures, the pilot run of PredNet, its ablations (no explicit error units, 3 and 4 layers), the ConvLSTM baseline, the programmed trackers (Kalman filters), the position probe, and the amodal decoder | done |
 | 2.10 | Training sweep of every model: PredNet with 3, 4, and 5 layers, without explicit error units, and the ConvLSTM | done |
-| 3.1 and 3.2 | Development set, extraction pass over the test set, statistics, and tracking through occlusion (RQ1) | done |
-| 3.3 to 3.8 | Correction after the reappearance, surprise, inside the state, more seeds | in progress |
+| 3.1 to 3.3 | Development set, extraction pass over the test set, statistics, tracking through occlusion (RQ1), and correction after the reappearance (RQ2) | done |
+| 3.4 to 3.8 | Surprise, inside the state, blackout and closed loop, more seeds | in progress |
 
 The detailed status of every step is in [docs/implementation.md](docs/implementation.md#status).
 

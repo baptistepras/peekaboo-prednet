@@ -260,3 +260,78 @@ The timing compares the first frame with at least one pixel's worth of ink on th
 **Limits.** One seed per model: the intervals are over test sequences, not over training runs, so differences between models of a few tenths of a pixel say how these runs differ, not how the architectures do; more seeds come in step 3.7. The emergence threshold (one pixel's worth of ink) and the window (2 frames before to 3 after) were fixed on `dev_v1`. The probe and the decoder are minimal readouts fitted on new sequences of the training stream (steps 2.8 and 2.9), so they show what the state holds in a linearly readable form, a lower bound.
 
 **Decisions.** RQ1 is answered for this sweep: the PredNets keep the hidden digit and draw it back on time, without measurable loss up to 12 hidden frames; the ConvLSTM does not. The analyses of `test_v1` are kept in git in `runs/analysis/test_v1/`.
+
+## Step 3.3: correction after the reappearance (RQ2)
+
+**Question.** When the digit comes back into view, how many frames does each model need to be right again, and is it slower when the reappearance is surprising (H2)? An expected reappearance tests whether the model was ready for it; a surprising one tests how fast it gives up its expectation.
+
+**Setup.** The five sweep models (one seed each) on `test_v1`, from the passes of step 3.1 (`scripts/analyze_correction.py`, about a minute; `runs/analysis/test_v1/correction/`). Everything is aligned on the actual reappearance frame (j = 0, the first frame with visible ink). Expected reappearances: the 5600 occlusion and 2400 hidden bounce sequences of the cells. Surprising ones: the impossible member of each surprise tuple (600 per kind, 200 for the speed kinds) against the possible member that ends with exactly the same frames: AB against B, so the difference comes from the history alone. For `vanish`, AB never reappears; its BA, where the digit appears from nowhere, is compared with A. Three readouts, each with its references:
+
+- the state: the distance of the position probe to the true center, against the Kalman filters;
+- the predicted frame: the distance of the drawn digit (its ink centroid off the bar) to the visible ink center (critique C9), against the copy of the last frame;
+- the pixels: the MSE in the box around the digit.
+
+The latency (decision D14) is the first frame from which the error stays at or below a threshold tau for 2 frames in a row, within the first 6 frames after the reappearance; a sequence that never gets there is censored and counts as 5 frames. Tau is each model's own precision on visible frames: the 90% quantile of its error on the fully visible frames before the onset of the cells (from frame 2 on), at least 3 px for the two distances. It is 3 px for the probes of PredNet 5 layers and concat, 3.49 for 4 layers, 4.8 for 3 layers, and 11.2 for the ConvLSTM, and 3 px for every drawn digit (4.47 for the copy). A latency therefore says how fast a model gets back to its own usual precision: the ConvLSTM's probe is never precise, so its latency is short by construction, and the mean error over the 6 frames is the measure to compare between models. Between 0.2 and 5.8% of the sequences, depending on the event, end their analysis window before the latency can be read and are left out.
+
+All the choices were fixed on `dev_v1` and committed before `test_v1` was run. A check on `dev_v1` showed that the ConvLSTM's large tau is its real precision, not a slow start: the 90% quantile of its probe error stays between 10 and 12 px at every frame of the sequence.
+
+**Expected reappearances: the PredNets are right at once.**
+
+| Model | Probe latency, occlusion | Probe latency, hidden bounce | Drawn digit latency, occlusion | Drawn digit latency, hidden bounce |
+| --- | --- | --- | --- | --- |
+| PredNet 5 layers | **0.06** | **0.36** | 0.02 | 0.03 |
+| PredNet 5 layers, concat | 0.12 | 0.70 | 0.02 | 0.03 |
+| PredNet 4 layers | 0.13 | 0.62 | **0.01** | 0.04 |
+| PredNet 3 layers | 0.16 | 0.70 | 0.04 | 0.06 |
+| ConvLSTM | 0.65 | 0.70 | 0.93 | 0.99 |
+| copy of the last frame | | | 0.92 | 0.95 |
+| Kalman, constant velocity | 1.31 (22% censored) | 4.54 (66% censored) | | |
+| Kalman with walls | 0.00 | 0.00 | | |
+
+The PredNets draw the digit where it comes out and keep it in their state through the reappearance. The ConvLSTM draws it one frame late, exactly as the copy of the last frame does. The constant velocity filter needs several frames, since its detector only sees the digit once it is fully out of the bar; after a hidden bounce it is not back within 6 frames in two thirds of the sequences.
+
+**Surprising reappearances: the PredNets need 1 to 3 frames to draw the digit in its new place, the ConvLSTM is not affected.** Latency of the drawn digit, AB minus B on the same frames (95% intervals):
+
+| Model | direction | offset | early | speed fast | speed slow | appear (vanish BA - A) |
+| --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers | 2.74 [2.63, 2.86] | 2.29 [2.23, 2.35] | 1.25 [1.20, 1.30] | 1.19 [1.09, 1.28] | 1.54 [1.39, 1.70] | 1.06 [1.01, 1.10] |
+| PredNet 5 layers, concat | 2.62 [2.52, 2.72] | 2.19 [2.13, 2.25] | 1.30 [1.25, 1.34] | 1.16 [1.06, 1.26] | 1.16 [1.03, 1.29] | 1.16 [1.12, 1.20] |
+| PredNet 4 layers | 2.75 [2.64, 2.86] | 2.06 [1.99, 2.13] | 1.08 [1.04, 1.13] | 1.18 [1.08, 1.27] | 1.09 [0.97, 1.22] | 1.05 [1.01, 1.09] |
+| PredNet 3 layers | 2.61 [2.49, 2.73] | **1.90** [1.82, 1.96] | **0.96** [0.92, 1.01] | 1.10 [1.04, 1.17] | **0.80** [0.70, 0.90] | 1.01 [0.96, 1.05] |
+| ConvLSTM | 0.01 [-0.01, 0.03] | 0.04 [0.02, 0.05] | 0.00 [-0.02, 0.01] | 0.08 [0.04, 0.12] | 0.00 [0.00, 0.00] | 0.01 [-0.01, 0.02] |
+
+![Readouts against the frames since the reappearance](../runs/analysis/test_v1/correction/correction.png)
+
+<sub>`test_v1`: the probe's distance to the center, the drawn digit's distance to the visible center, the MSE around the digit (log scale), and the decoder correlation, against j, the frames since the reappearance. One column per event; for the tuples, the surprising member (solid) and its matched control on the same frames (dashed). References in gray: Kalman filters, copy of the last frame, blank frame, and the templates.</sub>
+
+- After a `direction` surprise (the digit comes back out on its entry side, with no wall to explain it), the 5 layer model first draws the digit on the side it expected: 26.7 px from the visible digit on the reappearance frame, 8.6 px on the next, 3.3 px two frames later, against 0.15 to 0.35 px on B. `offset` (12 px higher or lower) takes about 2 frames, the timing surprises (`early`, the two speed changes) and `appear` about 1. The error of the drawn digit over the 6 frames is 5.65 px above B's after `direction` and 3.50 px after `offset` (5 layers).
+- The pixels follow: the MSE around the digit stays above the model's usual level 1.5 to 3.7 frames longer than on B.
+- The ConvLSTM draws the same frames whatever the history (AB - B within 0.08 frames and 0.04 px): with nothing expected, nothing surprises it. Its frames are those of a copy, late by one frame in both members.
+- The 3 layer model corrects its drawing fastest, by a few tenths of a frame; with one seed per model, this is a difference between these runs.
+
+**The probe's reading of the state stays on the old trajectory.** Mean probe error over the 6 frames, AB minus B (px, 95% intervals):
+
+| Model | direction | offset | early | speed fast | speed slow | appear (vanish BA - A) |
+| --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers | 15.30 [14.84, 15.79] | 5.42 [5.28, 5.56] | 3.30 [3.15, 3.45] | 2.07 [1.93, 2.22] | 3.43 [3.13, 3.74] | 5.48 [5.33, 5.64] |
+| PredNet 5 layers, concat | 12.57 [12.12, 13.01] | 4.74 [4.63, 4.86] | 3.38 [3.24, 3.52] | 2.56 [2.38, 2.74] | 3.76 [3.51, 4.02] | 6.66 [6.47, 6.85] |
+| PredNet 4 layers | 17.30 [16.84, 17.77] | 6.61 [6.41, 6.80] | 3.94 [3.77, 4.11] | 2.76 [2.55, 2.97] | 3.58 [3.35, 3.82] | 6.91 [6.71, 7.10] |
+| PredNet 3 layers | 17.37 [16.84, 17.95] | 7.33 [7.09, 7.58] | 4.45 [4.22, 4.70] | 2.88 [2.64, 3.11] | 5.54 [5.03, 6.10] | 6.58 [6.37, 6.80] |
+| ConvLSTM | 4.53 [4.21, 4.84] | 0.95 [0.71, 1.17] | 0.75 [0.59, 0.92] | 0.77 [0.51, 1.02] | -0.68 [-0.97, -0.40] | 2.37 [2.06, 2.67] |
+| Kalman, constant velocity | 22.09 [21.26, 22.92] | 9.13 [8.15, 10.08] | 4.89 [4.38, 5.38] | 5.82 [5.11, 6.59] | 6.78 [4.08, 9.18] | -1.76 [-2.68, -0.94] |
+| Kalman with walls | 25.49 [24.79, 26.20] | 9.24 [9.04, 9.43] | 7.26 [7.03, 7.50] | 4.76 [4.56, 4.97] | 10.77 [10.38, 11.16] | 2.44 [2.34, 2.53] |
+
+- After `direction`, the probe of the 5 layer model is 19 px from the digit on the reappearance frame and still 15.5 px seven frames later, when the digit is fully visible and drawn in the right place; on B, which shows exactly the same frames, it reads 1.0 to 1.2 px. 94% of the AB sequences are not back within 6 frames, against none of B's. After `offset`, 70% are not.
+- The decoder, which reads the digit's image rather than a single position, recovers with the drawing: its correlation goes from 0.02 at the reappearance to 0.74 three frames later and 0.89 at j = 7, against 0.91 on B.
+- So the model redraws the digit within a few frames, but the part of its state that the linear probe reads (fitted on ordinary sequences, where position and history agree) keeps following the expected trajectory. Whether this is an old belief kept in the deep layers or a readout that mixes position with velocity is a question for step 3.5, which reads the state layer by layer.
+- The Kalman filters are the slowest: they keep their prediction until the digit is fully out of the bar. The filter with walls, exact on possible motion, is misled the most by an impossible one.
+
+![Latency per event](../runs/analysis/test_v1/correction/latency.png)
+
+<sub>`test_v1`: the restricted mean latency (frames to be back within the model's own visible precision for 2 frames, censored at 5) of the probe (top), the drawn digit (middle), and the MSE around the digit (bottom), per event; filled: the reappearance of a cell or the surprising member of a tuple, open: its matched control; with 95% intervals.</sub>
+
+**H2 holds for every PredNet, and not for the ConvLSTM.** On identical frames, a surprising history makes the PredNets slower to draw the digit (by 1 to 3 frames), to match its pixels, and much slower to update the probe's reading of their state. The same look without the surprise is no problem: after a hidden bounce, where the digit also comes back out on its entry side but a wall explains it, the 5 layer model's probe is back within 0.36 frames and reads 1.7 px on the reappearance frame. The ConvLSTM, which does not track the hidden digit (step 3.2), is not slowed down by a surprising history in what it draws; only its probe reads a few px more after `direction` (4.5 px) and `appear` (2.4 px).
+
+**Limits.** One seed per model. The latency is relative to each model's own precision, and censored after 6 frames because the analysis windows end soon after the digit leaves the bar: for the probe after `direction` and `offset`, the curves and the mean error say more than the latency. The probe and the decoder were fitted on ordinary sequences; a surprising history may take the state where a linear readout was never fitted, which step 3.5 tests.
+
+**Decisions.** RQ2 is answered for this sweep. Step 3.4 measures the surprise itself, in the prediction errors right after the reappearance (AB against B, with AUROC), and the key contrast between `direction` and the hidden bounce. Step 3.5 should read the state of the AB sequences layer by layer, to see where the old trajectory is kept.

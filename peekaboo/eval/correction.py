@@ -236,10 +236,14 @@ def correction(table: pd.DataFrame, reference: str) -> dict[str, pd.DataFrame]:
 
 # figures
 
+def event_name(event: str) -> str:
+    """The name of an event in the figures."""
+    return "appear (vanish)" if event == "vanish" else event.replace("_", " ")
+
+
 def panel_title(event: str, role: str, control: str | None) -> str:
     """The title of a panel: the event, and for a tuple which member is drawn and which is dashed."""
-    name = "appear (vanish)" if event == "vanish" else event.replace("_", " ")
-    return name if control is None else f"{name}: {role}, {control} dashed"
+    return event_name(event) if control is None else f"{event_name(event)}: {role}, {control} dashed"
 
 
 def plot_curves(curve: pd.DataFrame, path: Path, title: str) -> Path:
@@ -313,7 +317,8 @@ def plot_latency(table: pd.DataFrame, path: Path, title: str) -> Path:
                                 fmt=marker, ms=4, color=color, mfc=color if filled else "white", lw=0.8,
                                 label=who if (x == 0 and filled) else None)
         ax.set_xticks(range(len(panels)))
-        ax.set_xticklabels([panel_title(e, r, c) for e, r, c in panels], fontsize=7)
+        ax.set_xticklabels([event_name(e) if c is None else f"{event_name(e)}\n{r} (filled), {c} (open)"
+                            for e, r, c in panels], fontsize=7)
         ax.axhline(HORIZON - M + 1, color="0.7", lw=0.8, ls=":")
         ax.set_ylim(-0.2, HORIZON - M + 1.4)
         ax.set_ylabel(f"latency, {readout.name} (frames)", fontsize=8)
