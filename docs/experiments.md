@@ -424,3 +424,91 @@ Three measures per tuple: the surprise index (the window mean of AB minus that o
 **Limits.** One seed per model, and the intervals are over tuples: they say nothing about the spread between trainings. The AUROC is at its ceiling, so it does not rank models or kinds. The surprise index is in units of each signal: values of different layers cannot be compared directly. The window is fixed and ends before the response does on most kinds. The hidden bounce contrast is unpaired. The choice to show the share of tuples in the layer figure and the printed table came after reading the `test_v1` output; the share was already saved in `index.csv`, and no number changed.
 
 **Decisions.** RQ3 is answered for this sweep. Step 3.5 reads the state and the error units layer by layer over time, which can test the differences in timing that this fixed window hides.
+
+## Step 3.5: inside the state
+
+**Question.** Which layers of the state hold the hidden digit, and do they code it as they code a visible one? After a surprise, which layers keep the expectation? What do the error units of each layer do while the digit is hidden and when it comes back?
+
+**Setup.** The five sweep models (one seed each) on `test_v1`. `scripts/fit_layers.py` fits the readouts again on subsets of the layers of the state R, on the same training stream frames as steps 2.8 and 2.9 (6 to 9 minutes per run). There are four kinds of subsets: all the layers, every layer alone, every layer but one, and all the layers fitted on the fully visible frames only. The probes are the ridge probes of (y, x), and the decoders are the minimal decoder of step 2.9. A second, lighter pass of each model over the set reads every readout on every frame (`scripts/extract.py --layers`, about 5 h for the five models), and `scripts/analyze_layers.py` reads it with the passes of step 3.1 (about a minute; `runs/analysis/test_v1/layers/`). The probe on all the layers is the probe of step 3.1: the largest difference is 8 x 10⁻⁶ px. The intervals are 95% bootstraps over sequences (5600 occlusion and 2400 hidden bounce sequences) or over tuples. Every choice was fixed on `dev_v1` and committed before `test_v1` was run, and `dev_v1` gives the same numbers within 0.2 px.
+
+**A probe that never saw a hidden digit still finds it.** On the fully hidden frames of the occlusion sequences:
+
+| Model | Probe error on y, fitted on every frame | Fitted on visible frames only | Difference | Decoder correlation, every frame | Visible frames only |
+| --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers | **0.64 px** [0.63, 0.65] | **1.12 px** [1.10, 1.14] | +0.48 [0.46, 0.50] | 0.76 | **0.73** |
+| PredNet 5 layers, concat | 0.76 px [0.74, 0.77] | 1.37 px [1.34, 1.40] | +0.61 [0.59, 0.64] | 0.73 | 0.55 |
+| PredNet 4 layers | 0.86 px [0.84, 0.87] | 1.58 px [1.55, 1.62] | +0.72 [0.69, 0.75] | 0.78 | 0.68 |
+| PredNet 3 layers | 1.46 px [1.44, 1.49] | 3.17 px [3.09, 3.24] | +1.70 [1.64, 1.77] | 0.76 | 0.40 |
+| ConvLSTM | 5.13 px [5.03, 5.22] | 9.10 px [8.95, 9.25] | +3.97 [3.82, 4.13] | 0.31 | -0.03 |
+| constant velocity Kalman filter | 2.38 px [2.21, 2.54] | | | | |
+
+- The main limit of the probe of step 2.8 was that it saw hidden frames in training. A probe fitted on visible frames only still reads the hidden digit of the 5 layer model within 1.1 px, twice as precisely as the Kalman filter, and its decoder loses only 0.02 of correlation. In that model, the state codes a hidden digit almost as it codes a visible one.
+- The code drifts a little while the digit is hidden. Over 8 hidden frames, the error of the visible frames probe rises from 0.7 to about 1.2 px in the 5 layer model, and falls back once the digit is out. The probe fitted on every frame stays flat.
+- The fewer the layers, the further the hidden code moves away from the visible one. The 3 layer model holds the hidden digit as well as the others (1.46 px when the probe sees hidden frames), but a probe of visible digits reads it 3.2 px off, worse than the Kalman filter, and its decoder falls to 0.40.
+- The ConvLSTM's visible frames decoder is at chance on hidden frames.
+
+![Readouts fitted on every frame or on visible frames only](../runs/analysis/test_v1/layers/visible.png)
+
+<sub>`test_v1`, occlusion with k = 8: the probe error on y (top) and the decoder correlation (bottom) of the readouts of all the layers, fitted on every frame (solid) or on the fully visible frames only (dotted), against the frames since the onset (hidden frames shaded); bands: standard errors.</sub>
+
+**The hidden digit is in the upper layers, held redundantly.** Each layer alone, on the fully hidden frames of the occlusion sequences (probe error on y in px / decoder correlation):
+
+| Model | Layer 0 | Layer 1 | Layer 2 | Layer 3 | Layer 4 | All the layers |
+| --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers | 10.74 / 0.18 | 2.68 / 0.56 | 1.24 / **0.76** | **0.88** / 0.52 | 0.95 / 0.36 | 0.64 / 0.76 |
+| PredNet 5 layers, concat | 8.15 / 0.15 | 3.55 / 0.23 | 1.22 / **0.74** | **0.98** / 0.59 | 1.14 / 0.39 | 0.76 / 0.73 |
+| PredNet 4 layers | 12.00 / 0.17 | 1.93 / 0.75 | 1.24 / **0.77** | **1.19** / 0.54 | | 0.86 / 0.78 |
+| PredNet 3 layers | 9.80 / 0.17 | 3.39 / 0.32 | **1.53** / **0.76** | | | 1.46 / 0.76 |
+| ConvLSTM | 6.65 / 0.27 | 5.88 / 0.27 | 5.54 / 0.18 | 6.26 / 0.09 | | 5.13 / 0.31 |
+
+- Layer 0 loses the hidden digit: alone, it reads it 8 to 12 px off, worse than the Kalman filter (2.4 px), although it gives 3 to 5 px on visible frames.
+- The position is read best from the deepest layers: layer 3 alone of the 5 layer model is within 0.9 px. The shape is read best from the middle: layer 2 alone gives as good a decoder as all the layers.
+- No layer is needed on its own in the 4 and 5 layer models. Without any one layer, the probe of the 5 layer model loses at most 0.12 px [0.11, 0.12] (without layer 4), and its decoder at most 0.12 of correlation (without layer 2). The 3 layer model is the exception: without its top layer, its probe reads 3.30 px off (+1.84 [1.78, 1.90]) and its decoder falls to 0.31.
+- The ConvLSTM holds the hidden digit in none of its layers.
+
+![Readouts of single layers](../runs/analysis/test_v1/layers/layers.png)
+
+<sub>`test_v1`, fully hidden frames of the occlusion sequences: the probe error on y (top) and the decoder correlation (bottom) of every layer alone (colored) and of all the layers but this one (gray), against the layer, with all the layers (solid line), all the layers fitted on visible frames only (dotted), and the Kalman filter (dash dot); 95% intervals.</sub>
+
+**After a surprise, the expectation is kept above the pixel layer.** The probe's distance to the true center over the 6 frames after each member's reappearance, the impossible member minus the possible one on the same tuples (in px; for `vanish`, the digit that appears from nowhere, BA - A). In the 5 layer model:
+
+| Kind | All the layers | Fitted on visible frames only | Layer 0 alone | Layers 1 to 4 alone | Kalman filter |
+| --- | --- | --- | --- | --- | --- |
+| `direction` | 15.30 [14.84, 15.79] | 14.38 | 3.31 | 12.34 to 16.39 | 22.09 |
+| `offset` | 5.42 [5.28, 5.56] | 4.82 | 1.52 | 4.82 to 6.26 | 9.13 |
+| `early` | 3.30 [3.15, 3.45] | 3.26 | 2.27 | 3.25 to 4.11 | 4.89 |
+| `speed_fast` | 2.07 [1.93, 2.22] | 1.87 | 2.62 | 2.07 to 2.95 | 5.82 |
+| `speed_slow` | 3.43 [3.13, 3.74] | 3.00 | 0.57 | 3.04 to 5.99 | 6.78 |
+| `vanish` (BA - A) | 5.48 [5.33, 5.64] | 5.11 | 1.32 | 3.50 to 6.14 | -1.76 |
+
+- Step 3.3 found that the probe stays on the old trajectory for several frames after a surprise, while the drawn digit recovers. This lag lives above the pixel layer. Layer 0 alone mostly follows the input: after `direction`, it is 3.3 px further on AB than on B, against 12 to 16 px for every layer above. Every PredNet shows the same pattern (after `direction`: 12.6 to 17.4 px on all the layers, 3.3 to 7.2 px on layer 0 alone). The exception is `speed_fast`, where layer 0 lags as much as the others.
+- The readouts fitted on visible frames only lag almost as much (14.4 against 15.3 px after `direction`), so the lag is not an artifact of a probe trained on hidden digits.
+- The decoders tell the same story: on the impossible member, the correlation of all the layers is 0.18 to 0.32 lower for every PredNet, and that of layer 0 alone only 0.05 to 0.12 lower. The ConvLSTM's decoder correlation differs by 0.01 at most: it draws what it sees, whatever the history.
+- The ConvLSTM's probe on all the layers lags 4.5 px after `direction`, and its probe fitted on visible frames 0.2 px. Whatever its state keeps of the history is not coded as a visible digit.
+
+![Belief of every layer after a surprise](../runs/analysis/test_v1/layers/belief.png)
+
+<sub>`test_v1`: the probe's distance to the true center over the 6 frames after the reappearance, the impossible member minus the possible one on the same tuples, for all the layers and every layer alone, per surprise kind and model, with the Kalman filter (dash dot); 95% intervals over tuples.</sub>
+
+**The pixel layer's errors go quiet under the bar, and the top layer responds to a hidden bounce.** The error units of every PredNet layer, relative to their level on the visible frames before the onset (1 = the same): their mean over the hidden frames and over the reappearance frame and the next two.
+
+| Model | Layer 0, hidden, whole frame | Layer 0, reappearance, bar | Upper layers, hidden, whole frame | Top layer over the bar, hidden bounce at k = 8: frame 2 / peak at frame 3 or 4 |
+| --- | --- | --- | --- | --- |
+| PredNet 5 layers | 0.27 | 1.21 | 0.89 to 0.97 | 1.36 / **2.12** |
+| PredNet 5 layers, concat | 0.75 | 1.17 | 0.73 to 1.01 | 1.28 / **2.66** |
+| PredNet 4 layers | 0.27 | 2.08 | 0.92 to 0.95 | 1.51 / **1.89** |
+| PredNet 3 layers | 0.31 | 2.32 | 0.91 to 0.93 | 1.16 / **1.41** |
+
+- During an occlusion, the errors of layer 0 fall to about a quarter of their visible level: the frames under the bar do not change, and the model predicts them. They rise again when the digit comes out, most over the bar (1.2 to 2.3 times their visible level). The concat model, whose error units are computed but not passed on, falls less (0.75).
+- The upper layers stay within about 10% of their visible level for the whole occlusion (the concat model's top layer: 0.73), and near it at the reappearance. Holding a hidden digit costs no error activity: the digit is kept in the state R, and the errors are quiet.
+- After a hidden bounce, the top layer's errors over the bar peak at frame 3 or 4 of 8, in the middle of the hidden frames, where the hidden digit bounces off the wall. They rise 1.2 to 2.1 times their level at frame 2, in every PredNet. Layer 0 shows no peak there in the 5 layer models, and a smaller one a frame later in the 3 and 4 layer models (1.47 and 1.26 at frame 4). The top of the hierarchy responds to an event that is not in the image, as the error of step 3.4 rose after `vanish`. This is a mean over sequences of one seed per model: a lead, not a result.
+
+![Error units of every layer](../runs/analysis/test_v1/layers/errors.png)
+
+<sub>`test_v1`, k = 8: the error units of every PredNet layer relative to their level on the visible frames before the onset, on the whole frame (solid) and over the bar (dashed), against the frames since the onset (hidden frames shaded), for occlusion (left) and hidden bounce (right).</sub>
+
+`scripts/show_errors.py` draws the maps of these error units frame by frame, for one sequence or the four members of a surprise tuple, as figures and GIFs (`<run>/errors/`, kept local).
+
+**Limits.** One seed per model: seeds 1 and 2 of the 5 layer model come in step 3.7. The readouts are linear. A layer that a linear readout does not read may still hold the digit in another form, and the layers do not give the readouts the same number of features (768 to 1536 per layer after pooling). The error units are relative to the visible frames before the onset of both cells together, so the hidden bounce scenes, where the bar stands against a wall, start above 1. The timing of the error units of every layer after a surprise is not measured here: the curves are drawn for the cells only, and the maps of `show_errors` show single tuples.
+
+**Decisions.** The hidden digit of the 4 and 5 layer PredNets is held in their upper layers, coded nearly as a visible digit, and with redundancy, while their error units stay quiet. Step 3.6 removes the input (blackout) and feeds the models their own predictions (closed loop).

@@ -82,6 +82,12 @@ The PredNets' error grows by at most 0.06 px per hidden frame, and they draw the
 
 **A surprising history raises the errors of the PredNets on identical frames, even when nothing appears (RQ3).** In nearly every tuple of every surprise kind, the error on the impossible sequence is above the error on the possible one that shows the same frames (AUROC 0.92 to 1.00; ConvLSTM, 0.50 to 0.53). The clearest case is a digit that never comes back: the frames do not change at all, and the 5 layer model's error still rises about 150 fold around the frame where the digit should return, then fades. The same look with a wall to explain it costs far less: returning on the entry side raises the error about 1.5 fold after a hidden bounce and 6 fold without a wall.
 
+**Inside the state, the hidden digit is held in the upper layers, coded nearly as a visible one.** Probes and decoders fitted on every layer alone show that the lowest layer, which predicts the pixels, loses the hidden digit (8 to 12 px off), while the upper layers each hold it (layer 3 of the 5 layer model alone: 0.9 px); in the 5 layer model, removing any one layer costs at most 0.12 px. A probe fitted on visible frames only, which never saw a hidden digit, still reads it within 1.1 px in the 5 layer model, better than the Kalman filter (2.4 px). After a surprise, the expectation is kept above the pixel layer, and while the digit is hidden, the error units of the upper layers stay at their visible level: holding the digit costs no error activity.
+
+<p align="center">
+  <img src="runs/analysis/test_v1/layers/layers.png" alt="Probe error and decoder correlation of every layer alone and of all the layers but one, on the hidden frames" width="100%">
+</p>
+
 The full analysis is in [docs/experiments.md](docs/experiments.md).
 
 ## Status
@@ -91,8 +97,8 @@ The full analysis is in [docs/experiments.md](docs/experiments.md).
 | 1 | Occlusion generator, surprise tuples, ground truth, validation and test sets, PredNet | done |
 | 2.1 to 2.9 | Training, evaluation, prediction figures, the pilot run of PredNet, its ablations (no explicit error units, 3 and 4 layers), the ConvLSTM baseline, the programmed trackers (Kalman filters), the position probe, and the amodal decoder | done |
 | 2.10 | Training sweep of every model: PredNet with 3, 4, and 5 layers, without explicit error units, and the ConvLSTM | done |
-| 3.1 to 3.4 | Development set, extraction pass over the test set, statistics, tracking through occlusion (RQ1), correction after the reappearance (RQ2), and surprise (RQ3) | done |
-| 3.5 to 3.8 | Inside the state, blackout and closed loop, more seeds | planned |
+| 3.1 to 3.5 | Development set, extraction pass over the test set, statistics, tracking through occlusion (RQ1), correction after the reappearance (RQ2), surprise (RQ3), and inside the state (layers and error units) | done |
+| 3.6 to 3.8 | Blackout and closed loop, more seeds | planned |
 
 The detailed status of every step is in [docs/implementation.md](docs/implementation.md#status).
 
