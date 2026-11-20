@@ -13,7 +13,9 @@ The model runs once over the set, so no later analysis runs it again. Every fram
 - for PredNet, the mean activity of the error units of every layer, on the whole frame and over the bar.
 
 Row t always describes frame t: the prediction of frame t, made from frames 0 to t - 1, and the state R[t] that makes
-it. The programmed trackers do not depend on the model, so they are extracted once per set (baseline_frames).
+it. The programmed trackers do not depend on the model, so they are extracted once per set (baseline_frames). The
+readouts of single layers of step 3.5 (peekaboo/probes/layers.py) come in a second, lighter pass (layer_frames),
+joined to the first on (sequence, t).
 
 The rows are written by chunks of sequences in a folder (part_<start>.parquet), each chunk renamed into place only
 once complete, so a stopped pass resumes at the first missing chunk.
@@ -36,6 +38,7 @@ from peekaboo.data.dataset import ROLE_NAMES, SURPRISE_NAMES, make_loader, prepa
 from peekaboo.eval.next_frame import blank_prediction, copy_prediction, frame_scores
 from peekaboo.probes.amodal import TEMPLATES, AmodalDecoder, ink_scores, template_images
 from peekaboo.probes.features import frame_features, frame_rows
+from peekaboo.probes.layers import LayerProbes
 from peekaboo.probes.position import PositionProbe, position_bins
 from peekaboo.trackers.baselines import TRACKER_NAMES, run_trackers
 from peekaboo.trackers.detector import bar_columns, detect
@@ -47,6 +50,10 @@ MIN_INK = 1.0        # summed ink below which a frame shows no digit, and the ce
 MISSING = np.iinfo(np.int64).min  # frames since an event that did not happen
 FRAMES_FORMAT = 2    # version of the columns of a model pass: 2 takes the ink centroid off the bar
 BASELINES_FORMAT = 1  # version of the columns of the baselines
+LAYERS_FORMAT = 1    # version of the columns of a layer pass
+# what a layer pass keeps of every frame besides the readouts: enough to filter its rows when reading them
+LAYER_ROWS = ["sequence", "t", "y", "x", "condition", "state", "in_window", "since_onset", "since_reappear",
+              "tuple_role"]
 RANDOM_SEED = 0      # seed of the random initialization control, as in scripts/fit_probes.py and fit_decoder.py
 WHO = ("model", "copy", "blank")
 
@@ -206,6 +213,34 @@ def extract_frames(model: torch.nn.Module, dataset: Dataset, start: int, count: 
         if "E" in out:
             values.update(error_activity(out["E"], bar))
         columns.update({name: v.reshape(-1).float().cpu().numpy() for name, v in values.items()})
+        parts.append(rows.assign(**{name: np.asarray(v, dtype=np.float32) for name, v in columns.items()}))
+        first += len(cpu_batch["state"])
+    return pd.concat(parts, ignore_index=True)
+
+
+@torch.no_grad()
+def layer_frames(model: torch.nn.Module, dataset: Dataset, start: int, count: int, device: torch.device,
+                 probes: LayerProbes, decoders: dict[str, tuple[tuple[int, ...], AmodalDecoder]],
+                 batch_size: int = 16, workers: int = 0) -> pd.DataFrame:
+    """One row per frame of sequences [start, start + count) of a dataset that includes the amodal frames, with the
+    LAYER_ROWS, the position of every probe of peekaboo/probes/layers.py (probe_<name>_y, _x), and the correlation and
+    ink IoU of every decoder against the amodal frame (decoder_<name>_corr, _iou). `decoders` maps every name to the
+    layers its decoder reads and the decoder."""
+    model.eval()
+    parts, first = [], start
+    for cpu_batch in make_loader(dataset, batch_size, start, count, workers):
+        rows = describe(cpu_batch, first)[LAYER_ROWS]
+        batch = prepare_batch(cpu_batch, device)
+        states = model(batch["frames"], return_states=True)["R"]
+        features = frame_features(states, probes.layer_limit).flatten(0, 1).float().cpu().numpy()
+        columns = {}
+        for name, position in probes.predict(features).items():
+            columns[f"probe_{name}_y"], columns[f"probe_{name}_x"] = position[:, 0], position[:, 1]
+        layers = [torch.stack([step[l] for step in states], dim=1).flatten(0, 1) for l in range(len(states[0]))]
+        target = batch["amodal"].flatten(0, 1)[:, 0]
+        for name, (subset, decoder) in decoders.items():
+            corr, iou = ink_scores(decoder.to(device).imagine([layers[l] for l in subset]), target)
+            columns[f"decoder_{name}_corr"], columns[f"decoder_{name}_iou"] = corr.cpu().numpy(), iou.cpu().numpy()
         parts.append(rows.assign(**{name: np.asarray(v, dtype=np.float32) for name, v in columns.items()}))
         first += len(cpu_batch["state"])
     return pd.concat(parts, ignore_index=True)

@@ -38,7 +38,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 3.2 | Statistics over sequences and seeds (bootstrap, paired differences, AUROC) and tracking through occlusion (RQ1): the state against the frames since the onset, its decay, and the predicted frames when the digit comes out: the PredNets keep the hidden digit without measurable loss up to 12 hidden frames and draw it back on time, the ConvLSTM does not (see [Experiments, step 3.2](experiments.md#step-32-tracking-through-occlusion-rq1)) | done |
 | 3.3 | Correction after the reappearance (RQ2): the readouts aligned on the reappearance frame, expected against surprising (AB against B on identical frames), and the latency with a threshold per model: the PredNets need 1 to 3 frames to redraw the digit after a surprise and their probe stays on the old trajectory, the ConvLSTM is not affected (see [Experiments, step 3.3](experiments.md#step-33-correction-after-the-reappearance-rq2)) | done |
 | 3.4 | Surprise (RQ3): the next frame MSE and the error units of every layer in a window after the first frame where the impossible member departs from its history, AB against B on identical frames, with the surprise index, the AUROC, and the key contrast of the hidden bounce (C13): every PredNet is surprised on identical frames, even when nothing appears, and the ConvLSTM is not (see [Experiments, step 3.4](experiments.md#step-34-surprise-rq3)) | done |
-| 3.5 to 3.8 | Inside the state, blackout and closed loop, more seeds, results | planned |
+| 3.5 | Inside the state: the probe and the decoder of every layer alone and of every layer but one, the readouts fitted on visible frames only, the belief of every layer after a surprise, and the error units of every layer while the digit is hidden and when it comes back, with their maps | in progress |
+| 3.6 to 3.8 | Blackout and closed loop, more seeds, results | planned |
 
 ## Conventions
 
@@ -430,7 +431,7 @@ What the model believes about a hidden digit cannot be seen in its predicted fra
 
 #### `peekaboo/probes/features.py`
 
-- `frame_features(states, limit)`: one vector per frame from the states returned with `return_states`. R[t] is the state that makes the prediction of frame t, so it has seen frames 0 to t - 1. Each layer is average pooled over space by the smallest power of 2 that leaves at most `limit` values (`pool_layer`, 2048 by default), and the layers are concatenated: 5,760 features per frame for PredNet 5 layers (layers pooled to 16 x 24, 8 x 12, 4 x 6, 4 x 6, and 2 x 3), 6,144 for the ConvLSTM. The pooled maps keep a coarse spatial layout, from which a linear probe can read a position. This keeps about 20k frames under 0.5 GB (plan verdict 9).
+- `frame_features(states, limit)`: one vector per frame from the states returned with `return_states`. R[t] is the state that makes the prediction of frame t, so it has seen frames 0 to t - 1. Each layer is average pooled over space by the smallest power of 2 that leaves at most `limit` values (`pool_layer` and `pool_factor`, 2048 by default), and the layers are concatenated (`layer_columns(shapes, limit)` gives the columns of every layer): 5,760 features per frame for PredNet 5 layers (layers pooled to 16 x 24, 8 x 12, 4 x 6, 4 x 6, and 2 x 3), 6,144 for the ConvLSTM. The pooled maps keep a coarse spatial layout, from which a linear probe can read a position. This keeps about 20k frames under 0.5 GB (plan verdict 9).
 - `iterate_frames(model, dataset, count, device, ...)` runs the frozen model over sequences and yields, per batch, the features and one row per selected frame (sequence, frame, true centroid, state, episode, window, condition, k, speed, frames since the onset). Selected frames: from frame 2 on (`MIN_CONTEXT`, as in the next frame evaluation), with the digit present, and only inside the analysis window with `window_only`. `collect_frames` gathers them in a `FrameSet`.
 
 #### `peekaboo/probes/position.py`
@@ -439,7 +440,7 @@ Two probes per model (decision D15), on standardized features:
 
 - **Ridge regression** of the centroid (y, x). **y is the main axis** while the digit is hidden (critique C4): the bar spans the full height, so a hidden digit's x is bounded by the bar and partly known from the bar alone, while its y keeps changing behind it. `fit_ridge` solves every penalty at once from one eigendecomposition and keeps the one with the lowest error on held out frames.
 - **Logistic regression on 8 position bins per axis** (8 px bins in y, 12 px in x): a probability for each bin, so the probe's uncertainty can be read. The mean probability of the true bin is reported (0.125 is chance).
-- `fit_position_probe(features, positions, sequences, frame_size, layer_limit)` holds out 20% of the training sequences, whole, to choose both penalties (ridge alpha from 0.1 to 1e5, logistic C from 0.001 to 1), and returns a `PositionProbe` with `predict(features)` and `bin_probabilities(features)`. It is saved as plain arrays (`.npz`, no pickle) with the pooling limit it reads.
+- `fit_position_probe(features, positions, sequences, frame_size, layer_limit)` holds out 20% of the training sequences, whole (`validation_split`), to choose both penalties (ridge alpha from 0.1 to 1e5, logistic C from 0.001 to 1), and returns a `PositionProbe` with `predict(features)` and `bin_probabilities(features)`. It is saved as plain arrays (`.npz`, no pickle) with the pooling limit it reads.
 
 #### `peekaboo/probes/evaluate.py`
 
@@ -463,6 +464,21 @@ The amodal decoder (option C): it reads from the states the whole digit, includi
 - **Scores** (`ink_scores`): per frame, the Pearson correlation of the decoded and true intensities, and the IoU of their ink (intensity above 0.5).
 - **Template baselines** (`template_images`): the last fully visible digit, copied and moved to the position predicted by a tracker. Moved by the constant velocity Kalman filter (`template_kalman`), it shows what memory of the shape plus constant motion gives; moved by the filter with walls (`template_walls`), it is exact on this synthetic data, the ceiling.
 - `evaluate_decoders(decoders, dataset, count, device)`: one row per frame from frame 2 on, with the correlation and IoU of each decoder (trained model and random initialization) and of both templates. Saved as `.npz` with `save` and `load`, plain arrays only.
+
+#### `peekaboo/probes/layers.py`
+
+The readouts of single layers (step 3.5): which layers hold the hidden digit. The probe and the decoder above read every layer at once; here the same readouts are fitted on subsets of the layers (`layer_subsets`), on the same frames of the training stream:
+
+| Readout | Layers | Frames it is fitted on |
+| --- | --- | --- |
+| `all` | every layer | the analysis windows, as in steps 2.8 and 2.9 (the ridge probe is the very same) |
+| `visible` | every layer | the fully visible frames only: if it finds the hidden digit, a hidden digit is coded as a visible one |
+| `only_<l>` | layer l | the analysis windows |
+| `without_<l>` | every layer but l | the analysis windows |
+
+- `fit_layer_probes(features, rows, columns, layer_limit)`: the ridge probe of (y, x) of every readout (the logistic bins are left out), on the columns of its layers of the features standardized once and centered on the frames it is fitted on (the visible frames do not have the mean of all the frames), with the held out sequences, standardization, and penalties of `fit_position_probe`. Returns a `LayerProbes` (`predict` gives every probe's position) and the validation MSE of each.
+- `fit_layer_decoders(model, dataset, steps, device)`: the minimal decoder of every readout on its layers, all trained on the same batches of the stream, as `fit_decoder` trains one; the `visible` decoder sees only the fully visible frames of each batch.
+- `save_readouts` and `load_readouts`: everything in `<run>/probes/layers/` (`position.npz`, `amodal_<readout>.npz`, and `info.json` with the layers of every readout), plain arrays only. `state_shapes(model, frame_size, device)` gives the shape of every layer's state.
 
 ### Evaluation
 
@@ -492,9 +508,10 @@ One pass of a trained model over a stored set, saving per frame everything the P
   - what the predicted and the true frames show (`ink_readout`, `pred_*` and `true_*`): the red ink (red minus green, 0 on the gray bar and the background) above 0.1, summed, the centroid of the ink off the bar (undefined below one pixel of ink off the bar), and the ink left and right of the bar. The centroid leaves the bar out because the true digit is never seen over the opaque bar, and because PredNet 5 layers concat and the ConvLSTM tint the whole bar slightly red (10 to 50 pixels of ink over the bar on every frame), which pulled their centroid toward the bar by about 5 px in the first version of the columns. On the true frames, the centroid is the visible ink center;
   - the position probe (`probe_y`, `probe_x`, and the probability of the true bin of each axis) and the amodal decoder (`decoder_corr`, `decoder_iou`) saved in the run, and the same for the random initialization control (`random_*`), rebuilt with the seed the control was fitted with;
   - for PredNet, the mean activity of the error units of every layer (`error_activity`, `e<l>`), and over the bar region taken at the layer's resolution (`e<l>_bar`).
+- `layer_frames(model, dataset, start, count, device, probes, decoders)`: the second, lighter pass of step 3.5: per frame, a few columns that say what the frame is (to filter the rows), the position of every probe of `peekaboo/probes/layers.py` (`probe_<readout>_y`, `_x`), and the correlation and IoU of every decoder (`decoder_<readout>_corr`, `_iou`). Saved in `<run>/eval/layers_<set>/` and joined to the first pass on (sequence, frame).
 - `baseline_frames(dataset, start, count)`: the programmed baselines, which do not depend on the model, once per set: the position predicted by every tracker, the bar center x, and the templates moved by the Kalman filters, scored against the amodal frame.
 - `run_chunks(folder, count, chunk, make_part, settings)`: writes the rows by chunks of sequences (`part_<start>.parquet`, each renamed into place once complete), skips the chunks already written, so a stopped pass resumes, refuses a folder written with other settings, and marks the folder complete in its `info.json`. `read_frames(folder, columns, filters)` reads a complete pass (all its columns, or some, and only the rows that pass parquet filters), `is_complete`, `chunks_written`, and `pass_format` give its state.
-- `FRAMES_FORMAT` and `BASELINES_FORMAT`: the version of the columns of a model pass (2, the centroid off the bar) and of the baselines (1), saved in `info.json`. The analyses refuse a pass with older columns, and `scripts/extract.py --status` gives the command that writes it again.
+- `FRAMES_FORMAT`, `BASELINES_FORMAT`, and `LAYERS_FORMAT`: the version of the columns of a model pass (2, the centroid off the bar), of the baselines (1), and of a layer pass (1), saved in `info.json`. The analyses refuse a pass with older columns, and `scripts/extract.py --status` gives the command that writes it again.
 
 #### `peekaboo/eval/stats.py`
 
@@ -507,7 +524,7 @@ The statistics of the Phase 3 analyses. A per frame table has many correlated fr
 
 #### `peekaboo/eval/tables.py`
 
-The extraction tables as the analyses read them. `available_runs(runs_dir, data)` finds every seed of every sweep model with a complete pass on a set (the failed runs kept as records are left out) and refuses a pass with older columns; `read_runs(runs, baselines, conditions, columns, roles, rows)` reads their rows of some conditions (and tuple roles: `none` for the sequences of the cells; `rows` keeps only the rows matching one of several lists of parquet conditions), with `model` and `seed`, joined with the baselines of the set (columns a pass does not have, such as the error units of the ConvLSTM, are NaN in its rows; `extract.frame_columns(folder)` lists those it has); `add_errors` adds the error of every position readout on y, x, and the distance (`probe_err_y`, `kalman_err`, ...); `per_sequence(table, column)` gives one value per seed and sequence, as `stats.py` takes them.
+The extraction tables as the analyses read them. `available_runs(runs_dir, data)` finds every seed of every sweep model with a complete pass on a set (the failed runs kept as records are left out) and refuses a pass with older columns; `read_runs(runs, baselines, conditions, columns, roles, rows)` reads their rows of some conditions (and tuple roles: `none` for the sequences of the cells; `rows` keeps only the rows matching one of several lists of parquet conditions), with `model` and `seed`, joined with the baselines of the set (columns a pass does not have, such as the error units of the ConvLSTM, are NaN in its rows; `extract.frame_columns(folder)` lists those it has); `add_errors` adds the error of every position readout on y, x, and the distance (`probe_err_y`, `kalman_err`, ...); `per_sequence(table, column)` gives one value per seed and sequence, as `stats.py` takes them. `frames_folder`, `layers_folder`, and `baselines_folder` give where the passes of a set are.
 
 #### `peekaboo/eval/occlusion.py`
 
@@ -540,6 +557,16 @@ Surprise (RQ3). Each surprise tuple gives the controlled comparison of PLATO (C3
 - `contrast(table)`: the key contrast (C13): a digit that comes back out on its entry side is impossible without a wall (`direction`) and expected with one (the hidden bounce cells). The unpaired AUROC of the window signal at the reappearance, hidden bounce against occlusion and `direction` AB against hidden bounce.
 - `curves(table)`: every signal against the frames since the window start, from 3 before to 7 after, per kind and role.
 - `plot_auroc`, `plot_layers`, and `plot_curves`: the AUROC per kind and model (filled AB against B, open BA against A, and the contrast), the share of tuples and the AUROC of the error units per layer, and the curves of AB with B dashed, the window shaded.
+
+#### `peekaboo/eval/layers.py`
+
+Inside the state (step 3.5), from the extraction tables and the layer passes (`read_layers` joins them, with the baselines), one value per sequence or tuple and seed, as in the other analyses.
+
+- `readouts(table)`: which layers hold the hidden digit. On the hidden frames of the occlusion and hidden bounce cells (and on the fully visible frames before the onset, for comparison), the probe's error on y (the main hidden axis, C4) and the decoder's correlation and IoU of every readout, with bootstrap intervals and Kalman, and the paired difference of every readout against all the layers on the same sequences. The `visible` readouts against `all` say whether a hidden digit is coded as a visible one.
+- `curves(table)`: the probe's error on y and the decoder's correlation of every readout against the frames since the onset, per k.
+- `belief(table)`: where the belief is after a surprise (left open by step 3.3, where the probe stayed on the old trajectory while the drawn digit was corrected): the probe's distance to the true center and the decoder's correlation of every readout, averaged over the 6 frames from each member's own reappearance, the impossible member minus the possible one on the same tuples (AB - B, BA - A), with Kalman.
+- `errors(table)`: the error units of every PredNet layer, on the whole frame and over the bar, relative to their mean on the fully visible frames before the onset of the cells (per model and seed): their curve against the frames since the onset, and their mean over the hidden frames and over the reappearance frame and the next two. Below 1 while hidden, the layer has little to correct while it predicts the bar; above 1 at the reappearance, the digit coming back is a surprise for it.
+- `plot_layers`, `plot_visible`, `plot_belief`, and `plot_errors`: every layer alone and all but one against the layer, with all the layers, the visible readout, and Kalman; the `all` and `visible` readouts against the frames since the onset; the belief difference per layer and surprise kind; and the relative error units per layer, the hidden frames shaded.
 
 #### `peekaboo/eval/compare.py`
 
@@ -584,6 +611,10 @@ The colors follow one convention in every figure of the project: red is ink on s
 - `prediction_animation(renders, predictions, labels, times, scale, gain, beliefs, imagined)`: one image per frame with several sequences side by side, for `save_gif`.
 - `frames_around_event(spec)`: the frames from 3 before the digit touches the bar to 4 after it leaves (frame 0 is left out, since its prediction comes before any input).
 
+#### `peekaboo/viz/errors.py`
+
+Error maps of PredNet (step 3.5). Each frame is a tile with the actual frame (hidden ink in cyan) and its state strip, the prediction, and one map per layer: the mean of the layer's error units over their channels (`error_maps`), enlarged to the frame with nearest neighbor pixels, in the magma colors. Each layer of each sequence has its own scale (`normalize`: its 99th percentile over the frames from 1 on is full brightness), so the maps show where and when a layer's errors rise and fall, not how large they are against another layer's. `error_sheet` lays out the chosen frames with row names, and `error_animation` gives one image per frame with several sequences side by side, for `save_gif`.
+
 #### `peekaboo/viz/curves.py`
 
 `plot_training(run_dir, title)`: saves `curves.png` from the two CSV logs of a run.
@@ -621,6 +652,7 @@ peekaboo/           the package
     position.py     ridge and bin probes of the position
     evaluate.py     probes next to their controls
     amodal.py       amodal decoder, templates, scores
+    layers.py       probes and decoders of single layers
   eval/             evaluation
     next_frame.py   next frame scores, SSIM, gate D16
     compare.py      comparison of the sweep models
@@ -630,6 +662,7 @@ peekaboo/           the package
     occlusion.py    tracking through occlusion (RQ1)
     correction.py   correction after the reappearance (RQ2)
     surprise.py     surprise (RQ3)
+    layers.py       inside the state: layers, visible readouts, belief, error units
   train/            training
     loop.py         training loop, validation, resume
     sweep.py        training sweep: runs, stages, state, checks
@@ -640,6 +673,7 @@ peekaboo/           the package
     space_time.py   space time diagrams
     frames.py       contact sheets and GIFs
     predictions.py  predictions next to the truth
+    errors.py       error maps of every layer
     curves.py       training curves
 scripts/            command line entry points
   env_check.py      environment report
@@ -667,6 +701,9 @@ scripts/            command line entry points
   analyze_occlusion.py  tracking through occlusion (RQ1)
   analyze_correction.py correction after the reappearance (RQ2)
   analyze_surprise.py   surprise (RQ3)
+  fit_layers.py         probes and decoders of single layers of a run
+  analyze_layers.py     inside the state (step 3.5)
+  show_errors.py        error maps of a saved PredNet
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set

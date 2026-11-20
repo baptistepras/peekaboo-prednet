@@ -21,16 +21,33 @@ from peekaboo.eval.next_frame import MIN_CONTEXT
 LAYER_LIMIT = 2048  # pooled values per layer
 
 
-def pool_layer(r: torch.Tensor, limit: int = LAYER_LIMIT) -> torch.Tensor:
-    """Average pool one layer's state (B, C, H, W) by the smallest power of 2 that leaves at most `limit` values, and
-    flatten it to (B, C * H' * W')."""
-    _, channels, height, width = r.shape
+def pool_factor(channels: int, height: int, width: int, limit: int = LAYER_LIMIT) -> int:
+    """The smallest power of 2 by which a layer of this shape is pooled to leave at most `limit` values."""
     factor = 1
     while channels * (height // factor) * (width // factor) > limit and factor < min(height, width):
         factor *= 2
+    return factor
+
+
+def pool_layer(r: torch.Tensor, limit: int = LAYER_LIMIT) -> torch.Tensor:
+    """Average pool one layer's state (B, C, H, W) by the smallest power of 2 that leaves at most `limit` values, and
+    flatten it to (B, C * H' * W')."""
+    factor = pool_factor(*r.shape[1:], limit)
     if factor > 1:
         r = F.avg_pool2d(r, factor)
     return r.flatten(1)
+
+
+def layer_columns(shapes: list[tuple[int, int, int]], limit: int = LAYER_LIMIT) -> list[np.ndarray]:
+    """The columns of every layer in the features of frame_features, from the state shape (C, H, W) of every
+    layer."""
+    out, start = [], 0
+    for channels, height, width in shapes:
+        factor = pool_factor(channels, height, width, limit)
+        size = channels * (height // factor) * (width // factor)
+        out.append(np.arange(start, start + size))
+        start += size
+    return out
 
 
 def frame_features(states: list[list[torch.Tensor]], limit: int = LAYER_LIMIT) -> torch.Tensor:

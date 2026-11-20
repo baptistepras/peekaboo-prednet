@@ -36,6 +36,11 @@ def frames_folder(run_dir: Path, data: str) -> Path:
     return run_dir / "eval" / f"frames_{data}"
 
 
+def layers_folder(run_dir: Path, data: str) -> Path:
+    """Where the layer pass of a run over a set is written (step 3.5)."""
+    return run_dir / "eval" / f"layers_{data}"
+
+
 def baselines_folder(runs_dir: Path, data: str) -> Path:
     """Where the baselines of a set are written."""
     return runs_dir / "baselines" / data

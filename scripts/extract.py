@@ -8,6 +8,9 @@ runs/baselines/<set>/. With --status: what is extracted for the sweep models on 
 
 The rows are written by chunks of sequences; a stopped pass started again with the same command continues at the
 first missing chunk.
+
+With --layers (step 3.5): the readouts of single layers fitted by scripts/fit_layers.py, in a second, lighter pass
+of the model, in <run>/eval/layers_<set>/; with --status, the state of these passes too.
 """
 
 import argparse
@@ -23,28 +26,37 @@ from peekaboo.data.render import RenderSettings
 from peekaboo.data.store import StoredDataset
 from peekaboo.data.truth import STATE_NAMES
 from peekaboo.device import describe_device, get_device
-from peekaboo.eval.extract import (BASELINES_FORMAT, FRAMES_FORMAT, RANDOM_SEED, baseline_frames, chunks_written,
-                                   extract_frames, is_complete, pass_format, read_frames, run_chunks)
-from peekaboo.eval.tables import baselines_folder, frames_folder
+from peekaboo.eval.extract import (BASELINES_FORMAT, FRAMES_FORMAT, LAYERS_FORMAT, RANDOM_SEED, baseline_frames,
+                                   chunks_written, extract_frames, is_complete, layer_frames, pass_format, read_frames,
+                                   run_chunks)
+from peekaboo.eval.tables import baselines_folder, frames_folder, layers_folder
 from peekaboo.models import build_model
 from peekaboo.paths import DATASETS_DIR, RUNS_DIR
 from peekaboo.probes.amodal import AmodalDecoder
+from peekaboo.probes.layers import has_readouts, load_readouts
 from peekaboo.probes.position import PositionProbe
 from peekaboo.train.checkpoint import find_checkpoint, load_model
 from peekaboo.train.sweep import MPS, SWEEP
 
 
-def status(runs_dir: Path, data: str, count: int, chunk: int) -> int:
-    """Print what is extracted on a set for the baselines and every sweep model, and the next command. A pass
-    written with an older version of the columns is to be written again with --overwrite."""
+def status(runs_dir: Path, data: str, count: int, chunk: int, layers: bool) -> int:
+    """Print what is extracted on a set for the baselines and every sweep model (or, with `layers`, the layer passes
+    of every model), and the next command. A pass written with an older version of the columns is to be written
+    again with --overwrite."""
     total = -(-count // chunk)
-    jobs = [("baselines", baselines_folder(runs_dir, data), BASELINES_FORMAT,
-             f"python -m scripts.extract --baselines --data {data}")]
+    jobs = [] if layers else [("baselines", baselines_folder(runs_dir, data), BASELINES_FORMAT,
+                               f"python -m scripts.extract --baselines --data {data}")]
     for run in SWEEP:
-        run_dir = run.run_dir(runs_dir)
-        jobs.append((f"{run.key}/seed{run.seed}", frames_folder(run_dir, data), FRAMES_FORMAT,
-                     f"{MPS} python -m scripts.extract --run runs/{run.key}/seed{run.seed} --data {data}"))
-    print(f"extraction on {data} ({count} sequences, {total} chunks of {chunk})\n")
+        run_dir, name = run.run_dir(runs_dir), f"{run.key}/seed{run.seed}"
+        command = f"{MPS} python -m scripts.extract --run runs/{name} --data {data}"
+        if not layers:
+            jobs.append((name, frames_folder(run_dir, data), FRAMES_FORMAT, command))
+        elif has_readouts(run_dir):
+            jobs.append((name, layers_folder(run_dir, data), LAYERS_FORMAT, f"{command} --layers"))
+        else:  # the readouts are fitted first, once per run
+            jobs.append((f"{name} (no readouts yet)", layers_folder(run_dir, data), LAYERS_FORMAT,
+                         f"{MPS} python -m scripts.fit_layers --run runs/{name}"))
+    print(f"{'layer passes' if layers else 'extraction'} on {data} ({count} sequences, {total} chunks of {chunk})\n")
     following = None
     for name, folder, version, command in jobs:
         done = is_complete(folder)
@@ -78,6 +90,9 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--runs", type=Path, default=RUNS_DIR, help="folder of the runs (for --baselines, --status)")
     parser.add_argument("--overwrite", action="store_true", help="start again a pass written with other settings")
+    parser.add_argument("--layers", action="store_true",
+                        help="with --run: the pass of the readouts of single layers (scripts/fit_layers.py); with "
+                             "--status: the state of these passes")
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
 
@@ -85,7 +100,7 @@ def main() -> int:
     probe_set = StoredDataset(data_dir)
     count = min(args.n or len(probe_set), len(probe_set))
     if args.status:
-        return status(args.runs, data_dir.name, count, args.chunk)
+        return status(args.runs, data_dir.name, count, args.chunk, args.layers)
 
     started = time.perf_counter()
     settings = {"data": data_dir.name, "count": count, "chunk": args.chunk}
@@ -98,6 +113,25 @@ def main() -> int:
         def make_part(start: int, size: int) -> pd.DataFrame:
             """The baselines of one chunk."""
             return baseline_frames(dataset, start, size, args.batch_size, args.workers)
+    elif args.layers:
+        if not has_readouts(args.run):
+            print(f"no readouts of single layers in {args.run}: run scripts.fit_layers first")
+            return 1
+        device = get_device(args.device)
+        path = find_checkpoint(args.run, args.checkpoint)
+        model, checkpoint = load_model(path, device)
+        probes, decoders = load_readouts(args.run)
+        dataset = StoredDataset(data_dir, render_settings=RenderSettings.from_config(checkpoint["config"]["data"]),
+                                include_amodal=True)  # drawn with the training colors
+        folder = layers_folder(args.run, data_dir.name)
+        settings.update(format=LAYERS_FORMAT, checkpoint=path.name, step=int(checkpoint["step"]))
+        print(f"{args.run} ({path.name}, step {checkpoint['step']}) on {describe_device(device)}: readouts of "
+              f"{len(decoders)} layer subsets on {count} sequences of {data_dir.name}, in {folder}")
+
+        def make_part(start: int, size: int) -> pd.DataFrame:
+            """The rows of one chunk."""
+            return layer_frames(model, dataset, start, size, device, probes, decoders, args.batch_size,
+                                args.workers)
     else:
         device = get_device(args.device)
         path = find_checkpoint(args.run, args.checkpoint)
@@ -137,7 +171,16 @@ def main() -> int:
     table = read_frames(folder)
     minutes = (time.perf_counter() - started) / 60
     print(f"\n{len(table)} rows x {table.shape[1]} columns in {folder} ({minutes:.1f} min)")
-    if not args.baselines:  # a quick look, to compare with the step 2.10 numbers
+    if args.layers and not args.baselines:  # a quick look: the hidden frames of the occlusion sequences
+        hidden = table[(table["state"] == STATE_NAMES.index("occluded")) & table["in_window"]
+                       & (table["condition"] == "occlusion")]
+        names = [c.removeprefix("decoder_").removesuffix("_corr") for c in table if c.endswith("_corr")]
+        print(f"fully hidden frames of occlusion sequences ({len(hidden)}), probe y error in px and decoder "
+              f"correlation:")
+        print(pd.DataFrame({"probe y": [np.abs(hidden[f"probe_{n}_y"] - hidden["y"]).mean() for n in names],
+                            "decoder": [hidden[f"decoder_{n}_corr"].mean() for n in names]}, index=names)
+              .to_string(float_format=lambda v: f"{v:.2f}"))
+    elif not args.baselines:  # a quick look, to compare with the step 2.10 numbers
         scored = table[table["t"] >= 1]
         print(f"MSE on every frame: model {scored['model_mse'].mean():.5f}, copy {scored['copy_mse'].mean():.5f}, "
               f"blank {scored['blank_mse'].mean():.5f}")

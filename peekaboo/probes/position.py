@@ -142,15 +142,21 @@ def fit_bins(z: np.ndarray, bins: np.ndarray, train: np.ndarray,
     return fitted[best][0], fitted[best][1], best, losses
 
 
+def validation_split(sequences: np.ndarray, validation_share: float = 0.2, seed: int = 0) -> np.ndarray:
+    """True for the frames of the training sequences, False for those of a share of the sequences held out to choose
+    the penalties (whole sequences, so no frame of a held out sequence is seen in training)."""
+    rng = np.random.default_rng(seed)
+    names = np.unique(sequences)
+    held = rng.choice(names, size=max(1, int(round(validation_share * len(names)))), replace=False)
+    return ~np.isin(sequences, held)
+
+
 def fit_position_probe(features: np.ndarray, positions: np.ndarray, sequences: np.ndarray,
                        frame_size: tuple[int, int], layer_limit: int, validation_share: float = 0.2,
                        seed: int = 0) -> tuple[PositionProbe, dict[str, dict[float, float]]]:
     """Fit both probes on frames (N, F) with true centroids (N, 2) and the sequence of each frame. A share of the
     sequences is held out to choose the penalties. Returns the probe and the validation scores of every penalty."""
-    rng = np.random.default_rng(seed)
-    names = np.unique(sequences)
-    held = rng.choice(names, size=max(1, int(round(validation_share * len(names)))), replace=False)
-    train = ~np.isin(sequences, held)
+    train = validation_split(sequences, validation_share, seed)
     standardizer = Standardizer.fit(features[train])
     z = standardizer(features)
     coef, intercept, alpha, ridge_errors = fit_ridge(z, positions.astype(np.float64), train)
