@@ -277,7 +277,8 @@ def plot_layers(summary: pd.DataFrame, path: Path, title: str, condition: str = 
             if measure == "probe_y" and len(kalman):
                 ax.axhline(kalman["mean"].iloc[0], color="0.3", lw=1.0, ls="-.", label="Kalman")
             ax.set_xticks(x)
-            ax.set_ylim(*((0, 1) if measure.startswith("decoder") else (0, None)))
+            # a decoder below chance (a correlation under 0) stays in view
+            ax.set_ylim(*((min(0.0, ax.get_ylim()[0]), 1) if measure.startswith("decoder") else (0, None)))
             if row == 0:
                 ax.set_title(model, fontsize=9)
             else:
@@ -311,7 +312,8 @@ def plot_visible(curve: pd.DataFrame, path: Path, title: str, condition: str = "
                 ax.fill_between(line["j"], line["mean"] - line["se"], line["mean"] + line["se"],
                                 color=colors[model], alpha=0.2, lw=0)
             ax.axvspan(-0.5, k - 0.5, color="0.92", zorder=0)
-            ax.set_ylim(*((0, 1) if measure.startswith("decoder") else (0, None)))
+            # a decoder below chance (a correlation under 0) stays in view
+            ax.set_ylim(*((min(0.0, ax.get_ylim()[0]), 1) if measure.startswith("decoder") else (0, None)))
             if row == 0:
                 ax.set_title(model, fontsize=9)
             else:
@@ -333,7 +335,7 @@ def plot_belief(table: pd.DataFrame, path: Path, title: str, measure: str = "pro
     colors = model_colors(rows)
     fig = Figure(figsize=(12, 6.2))
     axes = fig.subplots(2, 3, squeeze=False).ravel()
-    for ax, event in zip(axes, KINDS):
+    for index, (ax, event) in enumerate(zip(axes, KINDS)):
         pair = "BA - A" if event == "vanish" else "AB - B"
         own = rows[(rows["event"] == event) & (rows["pair"] == pair)]
         for model, line in own[own["kind"] == "model"].groupby("who", sort=False):
@@ -347,10 +349,12 @@ def plot_belief(table: pd.DataFrame, path: Path, title: str, measure: str = "pro
         ax.set_xticks(range(-1, LAYERS), ["all"] + [str(l) for l in range(LAYERS)])
         ax.set_title(f"{event.replace('_', ' ')}, {pair}", fontsize=9)
         ax.set_xlabel("layer read")
-        ax.set_ylabel(f"{MEASURES[measure][0]}, difference")
-    axes[0].legend(fontsize=6)
+        if index % 3 == 0:
+            ax.set_ylabel(f"{MEASURES[measure][0]},\nimpossible - possible")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=max(len(labels), 1), fontsize=7, frameon=False)
     fig.suptitle(title, fontsize=9)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.04, 1, 1))
     fig.savefig(path, dpi=120)
     return path
 
