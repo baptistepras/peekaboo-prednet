@@ -5,7 +5,8 @@ figures of peekaboo/eval/closed_loop.py. Nothing runs a model.
 Saved in runs/analysis/<set>/closed_loop/:
 - summary.csv: per mode (blackout, occlusion), frames (the blackout or hidden frames, and the reappearance frame and
   the next two), k (all and each), model, and loop (open, closed), the probe's error on y, the decoder's correlation,
-  the drawn digit's error on y and the share of frames where it is drawn, and the MSE around the digit, with 95%
+  the drawn digit's error on y and the share of frames where it is drawn (not behind the bar of the occlusion cells,
+  where the digit is hidden), and the MSE around the digit, with 95%
   bootstrap intervals, and the trackers next to the position measures; paired.csv: closed minus open loop on the same
   sequences;
 - curves.csv: the same measures against the frames since the onset, per mode, k, model, and loop;
@@ -21,7 +22,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from peekaboo.eval.closed_loop import FRAMES, K_SHOWN, MEASURES, closed_loop, loop_runs, plot_loop, read_loops
+from peekaboo.eval.closed_loop import (FRAMES, K_SHOWN, MEASURES, closed_loop, loop_runs, measures_of, plot_loop,
+                                       read_loops)
 from peekaboo.eval.extract import LOOP_MODES, LOOPS
 from peekaboo.eval.tables import baselines_folder
 from peekaboo.paths import RUNS_DIR
@@ -33,7 +35,8 @@ def report(tables: dict[str, pd.DataFrame]) -> None:
     summary, paired = tables["summary"], tables["paired"]
     every = summary[summary["k"] == "all"]
     for mode in LOOP_MODES:
-        for frames, measures in FRAMES.items():
+        for frames in FRAMES:
+            measures = measures_of(mode, frames)
             rows = every[(every["mode"] == mode) & (every["frames"] == frames)]
             if not len(rows):
                 continue

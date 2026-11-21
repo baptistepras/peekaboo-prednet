@@ -194,6 +194,8 @@ def test_analysis_on_a_fake_table(tmp_path: Path) -> None:
     assert value[("PredNet", "closed", "drawn_y")] == pytest.approx(0.5)
     assert value[("Kalman", "", "probe_y")] == pytest.approx(3.0)
     assert value[("last seen", "", "drawn_y")] == pytest.approx(4.0)
+    behind = summary[(summary["frames"] == "hidden") & (summary["mode"] == "occlusion")]
+    assert not behind["measure"].isin(["drawn_y", "drawn"]).any() and behind["measure"].eq("probe_y").any()
     difference = paired[(paired["frames"] == "hidden") & (paired["k"] == "all")].set_index(["mode", "measure"])
     assert difference.loc[("occlusion", "probe_y"), "mean"] == pytest.approx(-1.0)
     assert difference.loc[("blackout", "decoder_corr"), "mean"] == pytest.approx(0.4)

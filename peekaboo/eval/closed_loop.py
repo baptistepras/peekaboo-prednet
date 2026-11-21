@@ -9,7 +9,8 @@ Both are scored against the frames drawn without the blackout. Three questions, 
 - does the model keep the digit when it runs on its own predictions (C10): the same readouts in closed loop, against
   open loop on the same sequences; during a blackout, the digit drawn by the model is not behind the bar, so its
   position can be read on the predicted frames (the ink centroid off the bar) against the frame without the blackout,
-  a test of tracking on the pixels themselves (H1a);
+  a test of tracking on the pixels themselves (H1a); behind the bar of an occlusion cell, the frame without the
+  blackout shows no digit, so the drawn digit is read there only from the reappearance on;
 - is it ready when the input comes back: the MSE around the digit over the frames EMERGING since the reappearance.
 """
 
@@ -35,10 +36,19 @@ MEASURES = {"probe_y": ("probe |error| on y (px)", "{}_probe_err_y"),
             "mse_digit": ("MSE around the digit", "{}_mse_digit")}
 FRAMES = {"hidden": ("probe_y", "decoder_corr", "drawn_y", "drawn", "mse_digit"),  # the blackout or hidden frames
           "return": ("probe_y", "drawn_y", "mse_digit")}                        # the frames EMERGING since the return
+BEHIND = ("drawn_y", "drawn")  # not read on the hidden frames of the occlusion cells, where the digit is behind the bar
 REFERENCES = {"Kalman": "kalman_err_y", "last seen": "last_seen_err_y"}  # next to the position measures
 POSITION = ("probe_y", "drawn_y")
 CURVES = ("probe_y", "drawn_y", "decoder_corr", "mse_digit")
 BASELINE_COLUMNS = ["sequence", "t", "kalman_y", "last_seen_y"]
+
+
+def measures_of(mode: str, frames: str) -> tuple[str, ...]:
+    """The measures of FRAMES read on these frames of the cells of `mode`: on the hidden frames of the occlusion cells,
+    the reference frame shows no digit off the bar (it is behind it), so the drawn digit is left out there."""
+    if mode == "occlusion" and frames == "hidden":
+        return tuple(m for m in FRAMES[frames] if m not in BEHIND)
+    return FRAMES[frames]
 
 
 def loop_runs(runs_dir: Path, data: str, mode: str) -> list[ModelRun]:
@@ -63,13 +73,15 @@ def loop_runs(runs_dir: Path, data: str, mode: str) -> list[ModelRun]:
 
 def add_loop_errors(table: pd.DataFrame) -> pd.DataFrame:
     """For each loop: the probe's error on y against the true center, the drawn digit's error on y against the frame
-    without the blackout (both ink centroids off the bar), and whether a digit is drawn where that frame shows one;
-    and the errors on y of the trackers against the true center."""
+    without the blackout (both ink centroids off the bar), and whether a digit is drawn where that frame shows one,
+    both left undefined on the hidden frames of the occlusion cells (BEHIND); and the errors on y of the trackers
+    against the true center."""
     columns = {}
-    shown = table["ref_ink_y"].notna()
+    behind = (table["mode"] == "occlusion") & table["closed"] if "mode" in table else pd.Series(False, table.index)
+    shown = table["ref_ink_y"].notna() & ~behind
     for loop in LOOPS:
         columns[f"{loop}_probe_err_y"] = (table[f"{loop}_probe_y"] - table["y"]).abs()
-        columns[f"{loop}_drawn_err_y"] = (table[f"{loop}_ink_y"] - table["ref_ink_y"]).abs()
+        columns[f"{loop}_drawn_err_y"] = (table[f"{loop}_ink_y"] - table["ref_ink_y"]).abs().where(shown)
         columns[f"{loop}_drawn"] = np.where(shown, table[f"{loop}_ink_y"].notna().astype(float), np.nan)
     for name, column in (("kalman", "kalman_y"), ("last_seen", "last_seen_y")):
         if column in table:
@@ -101,7 +113,8 @@ def summary(table: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     interval, and the trackers for the position measures; and closed minus open loop on the same sequences."""
     lines, paired = [], []
     for mode in LOOP_MODES:
-        for frames, measures in FRAMES.items():
+        for frames in FRAMES:
+            measures = measures_of(mode, frames)
             rows = frame_rows(table[table["mode"] == mode], frames)
             for scope, own in scopes(rows):
                 where = {"mode": mode, "frames": frames, "k": scope}
@@ -117,7 +130,7 @@ def summary(table: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
                     first = own[own["model"] == own["model"].iloc[0]]
                     for name, column in REFERENCES.items():
                         if column in first:
-                            for measure in POSITION:
+                            for measure in (m for m in POSITION if m in measures):
                                 lines.append({**where, "who": name, "kind": "reference", "loop": "", "measure": measure,
                                               **interval(bootstrap(per_sequence(first, column)))})
     return pd.DataFrame(lines), pd.DataFrame(paired)
