@@ -16,7 +16,7 @@ from peekaboo.models.prednet import count_parameters
 from peekaboo.paths import PROJECT_ROOT
 from peekaboo.train.loop import TrainSettings, learning_rate
 from peekaboo.train.metrics import TRAIN_FIELDS, VAL_FIELDS
-from peekaboo.train.sweep import (FAILED, FIGURES, SWEEP, check_commands, find_run, next_action, run_status,
+from peekaboo.train.sweep import (FAILED, FIGURES, SEEDS, SWEEP, check_commands, find_run, next_action, run_status,
                                   stage_commands)
 
 RUN = SWEEP[0]
@@ -152,6 +152,16 @@ def test_a_run_with_its_own_seed(tmp_path: Path) -> None:
     assert commands["gate"].endswith("--run runs/sweep_prednet4l/seed1")
     write_training(run.run_dir(tmp_path), 500, {0: 0.06, 500: 0.0012})
     assert run_status(run, tmp_path).step == 500
+
+
+def test_more_seeds_of_the_reference_model(tmp_path: Path) -> None:
+    """The seeds of step 3.7 train the reference model's config in their own folders, and come after the sweep."""
+    assert [run.seed for run in SEEDS] == [1, 2] and all(run.key == SWEEP[0].key for run in SEEDS)
+    for run in SEEDS:
+        assert run.run_dir(tmp_path) == tmp_path / "sweep_prednet5l" / f"seed{run.seed}"
+        assert f"--config configs/train/sweep_prednet5l.yaml --seed {run.seed} " in stage_commands(run)["train"]
+    statuses = [run_status(run, tmp_path) for run in SWEEP + SEEDS]
+    assert next_action(statuses)[1] == stage_commands(SWEEP[0])["train"]
 
 
 def test_check_commands_stay_in_their_own_folder() -> None:

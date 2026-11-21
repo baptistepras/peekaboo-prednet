@@ -64,6 +64,10 @@ SWEEP = (
     SweepRun("sweep_prednet3l", "PredNet 3 layers", 30.0, 60),
 )
 FAILED = (SweepRun("sweep_prednet4l", "PredNet 4 layers, seed 0 (failed)", 13.3, 35),)  # records, not in the sweep
+# more seeds of the reference model (step 3.7), trained and evaluated as the sweep runs; the analyses find every seed
+# folder of a sweep model on their own, so these are listed here only for the state and the next command
+SEEDS = (SweepRun("sweep_prednet5l", "PredNet 5 layers, seed 1", 7.5, 20, seed=1),
+         SweepRun("sweep_prednet5l", "PredNet 5 layers, seed 2", 7.5, 20, seed=2))
 REFERENCE = "sweep_prednet5l"  # the reference model (README, Phase 3): best readouts, fastest to train
 
 

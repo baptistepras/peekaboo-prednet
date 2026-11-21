@@ -1,7 +1,8 @@
 """State of the training sweep (step 2.10): what is done, what is running, the checks, and the next command.
 
 The sweep trains every model with the same settings and seed (configs/train/sweep_*.yaml), one run at a time, then
-evaluates each one: the gate D16, the position probes, the amodal decoder, and the prediction figures. This script only
+evaluates each one: the gate D16, the position probes, the amodal decoder, and the prediction figures. The seeds 1 and
+2 of PredNet 5 layers (step 3.7) follow the sweep runs, with the same stages. This script only
 reads the run folders; it launches nothing. Run it between two commands, or while a run is training.
 """
 
@@ -12,8 +13,8 @@ from pathlib import Path
 import pandas as pd
 
 from peekaboo.paths import RUNS_DIR
-from peekaboo.train.sweep import (HIDDEN, STAGES, SWEEP, RunStatus, check_commands, find_run, next_action, relative,
-                                  run_status, stage_commands)
+from peekaboo.train.sweep import (HIDDEN, SEEDS, STAGES, SWEEP, RunStatus, check_commands, find_run, next_action,
+                                  relative, run_status, stage_commands)
 
 
 def summary_row(status: RunStatus) -> dict[str, str]:
@@ -58,7 +59,7 @@ def main() -> int:
             print(f"# {stage}\n{command}\n")
         return 0
 
-    statuses = [run_status(run, args.runs) for run in SWEEP]
+    statuses = [run_status(run, args.runs) for run in SWEEP + SEEDS]
     table = pd.DataFrame([summary_row(s) for s in statuses])
     print(f"training sweep (probe y error in px and decoder correlation on hidden frames, "
           f"{HIDDEN}; drop check: fall of the validation MSE over the 2000 steps before the learning rate drop)\n")
