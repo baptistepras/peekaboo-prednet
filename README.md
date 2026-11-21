@@ -88,6 +88,12 @@ The PredNets' error grows by at most 0.06 px per hidden frame, and they draw the
   <img src="runs/analysis/test_v1/layers/layers.png" alt="Probe error and decoder correlation of every layer alone and of all the layers but one, on the hidden frames" width="100%">
 </p>
 
+**Without an occluder, the state lets go of the digit; on its own predictions, the model keeps it.** When the input goes black instead of being hidden by the bar, a situation never seen in training, every PredNet loses the digit, the 5 layer model after a single black frame: its probe is 7.3 px off over the blackout, further than the last seen position (6.4 px), while it stays within 0.64 px under the bar. Fed its own predictions in place of the black frames (closed loop), the same model keeps the digit for the whole blackout: its probe stays within 0.67 px, ahead of the Kalman filter (1.35 px), and the digit it draws is within 0.18 px of its true place. The ConvLSTM gets worse in closed loop.
+
+<p align="center">
+  <img src="runs/analysis/test_v1/closed_loop/blackout.png" alt="Probe error, drawn digit error, decoder correlation, and MSE around the digit during a blackout, in open and closed loop" width="100%">
+</p>
+
 The full analysis is in [docs/experiments.md](docs/experiments.md).
 
 ## Status
@@ -97,8 +103,8 @@ The full analysis is in [docs/experiments.md](docs/experiments.md).
 | 1 | Occlusion generator, surprise tuples, ground truth, validation and test sets, PredNet | done |
 | 2.1 to 2.9 | Training, evaluation, prediction figures, the pilot run of PredNet, its ablations (no explicit error units, 3 and 4 layers), the ConvLSTM baseline, the programmed trackers (Kalman filters), the position probe, and the amodal decoder | done |
 | 2.10 | Training sweep of every model: PredNet with 3, 4, and 5 layers, without explicit error units, and the ConvLSTM | done |
-| 3.1 to 3.5 | Development set, extraction pass over the test set, statistics, tracking through occlusion (RQ1), correction after the reappearance (RQ2), surprise (RQ3), and inside the state (layers and error units) | done |
-| 3.6 to 3.8 | Blackout and closed loop, more seeds | planned |
+| 3.1 to 3.6 | Development set, extraction pass over the test set, statistics, tracking through occlusion (RQ1), correction after the reappearance (RQ2), surprise (RQ3), inside the state (layers and error units), and blackout and closed loop | done |
+| 3.7 and 3.8 | More seeds, results | planned |
 
 The detailed status of every step is in [docs/implementation.md](docs/implementation.md#status).
 

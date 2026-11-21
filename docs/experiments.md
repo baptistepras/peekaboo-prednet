@@ -512,3 +512,56 @@ Three measures per tuple: the surprise index (the window mean of AB minus that o
 **Limits.** One seed per model: seeds 1 and 2 of the 5 layer model come in step 3.7. The readouts are linear. A layer that a linear readout does not read may still hold the digit in another form, and the layers do not give the readouts the same number of features (768 to 1536 per layer after pooling). The error units are relative to the visible frames before the onset of both cells together, so the hidden bounce scenes, where the bar stands against a wall, start above 1. The timing of the error units of every layer after a surprise is not measured here: the curves are drawn for the cells only, and the maps of `show_errors` show single tuples.
 
 **Decisions.** The hidden digit of the 4 and 5 layer PredNets is held in their upper layers, coded nearly as a visible digit, and with redundancy, while their error units stay quiet. Step 3.6 removes the input (blackout) and feeds the models their own predictions (closed loop).
+
+## Step 3.6: blackout and closed loop
+
+**Question.** Does the state keep the digit when the input disappears, rather than being hidden by an occluder (D13)? Does the model keep it when it runs on its own predictions (C10), and does it then draw the digit in the right place, on the pixels themselves (H1a)? Is it ready when the input comes back?
+
+**Setup.** The five sweep models (one seed each) on `test_v1`, over the 1800 blackout sequences (k in {2, 4, 8} at speeds 2, 3, and 4, 600 sequences per k) and the 5600 occlusion sequences. During a blackout, every frame is black, the bar included, a case never seen in training. `scripts/extract.py --closed-loop` runs each model twice over these sequences. The first run is in open loop, as in the other steps. The second is in closed loop: from the onset to the reappearance, the model reads its own prediction of each frame in place of the frame. Both runs are scored against the frames drawn without the blackout. The passes take 6 to 11 minutes per model on the blackout cells and 18 to 33 minutes on the occlusion cells (2 h 36 in all). `scripts/analyze_closed_loop.py` reads them with the trackers of the set in 20 s (`runs/analysis/test_v1/closed_loop/`). The measures:
+- the probe and the decoder of steps 2.8 and 2.9;
+- the drawn digit's error on y: the ink centroid off the bar of the predicted frame against that of the frame without the blackout, with the share of frames where a digit is drawn;
+- the MSE in the box around the digit.
+
+On the hidden frames of the occlusion cells, the frame without the blackout shows no digit off the bar, so the drawn digit is read there only from the reappearance on. The intervals are 95% bootstraps over sequences, and closed minus open loop is paired on the same sequences. Every choice was fixed on `dev_v1` and committed before `test_v1` was run, and `dev_v1` gives the same numbers within 0.6 px for the PredNets and 0.9 px for the ConvLSTM.
+
+**Without input, the state loses the digit (D13).** Probe error on y in open loop (px), on the blackout frames and on the hidden frames of the occlusion cells with the same k:
+
+| Model | Blackout, k = 2 | k = 4 | k = 8 | Occlusion, k = 2 | k = 4 | k = 8 |
+| --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers | 4.76 | 7.49 | 9.76 | **0.64** | **0.63** | **0.63** |
+| PredNet 5 layers, concat | **1.03** | **3.06** | **7.17** | 0.75 | 0.76 | 0.78 |
+| PredNet 4 layers | 2.48 | 7.02 | 9.82 | 0.85 | 0.86 | 0.86 |
+| PredNet 3 layers | 4.62 | 7.56 | 9.18 | 1.40 | 1.45 | 1.50 |
+| ConvLSTM | 6.44 | 7.45 | 8.64 | 3.64 | 4.24 | 5.97 |
+| constant velocity Kalman filter | 0.89 | 1.19 | 1.99 | 0.97 | 1.82 | 2.64 |
+| last seen position | 5.16 | 6.05 | 7.95 | 6.09 | 6.91 | 8.25 |
+
+- A single black frame is enough. At k = 8, the 5 layer model's probe goes from 0.66 px on the first blackout frame (predicted from visible frames) to 9.4 px on the next, and stays near 12 px. Over the blackout frames it is 7.3 px off, further than the last seen position (6.4 px): the state does not freeze the digit, it moves away from it. The decoder correlation falls from 0.82 to about 0 within four frames.
+- The same models keep the digit under the bar with no loss over 12 frames (step 3.2). The memory of a hidden digit depends on seeing what hides it: a bar explains why the digit is not seen, a black frame is taken as evidence that it is gone.
+- The model without explicit error units (concat) loses it slowly: 1.3 px after one black frame, 6.2 px after three, 12.8 px after seven. While it still draws a digit, the digit is in place (0.91 px), but it draws one on fewer and fewer frames (67% of the blackout frames).
+
+**On its own predictions, PredNet carries the digit through the blackout, on the pixels (C10, H1a).** On the blackout frames, in open and closed loop:
+
+| Model | Probe error on y, open | Closed | Closed - open [95%] | Drawn digit error on y, open (share drawn) | Closed | Decoder correlation, open | Closed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers | 7.34 px | **0.67 px** | -6.67 [-6.89, -6.45] | 6.41 px (100%) | 0.18 px | 0.46 | 0.84 |
+| PredNet 5 layers, concat | 3.76 px | 0.76 px | -3.00 [-3.17, -2.84] | 0.91 px (67%) | 0.22 px | 0.62 | 0.83 |
+| PredNet 4 layers | 6.44 px | 0.86 px | -5.57 [-5.80, -5.37] | 4.76 px (86%) | 0.22 px | 0.48 | **0.85** |
+| PredNet 3 layers | 7.12 px | 1.37 px | -5.75 [-5.96, -5.56] | 4.66 px (58%) | **0.15 px** | 0.45 | **0.85** |
+| ConvLSTM | 7.51 px | 8.84 px | +1.33 [+1.04, +1.62] | 8.53 px (55%) | 9.45 px | 0.29 | 0.50 |
+| constant velocity Kalman filter | 1.35 px | | | | | | |
+| last seen position | 6.39 px | | | | | | |
+
+- In closed loop, every PredNet keeps the digit for the whole blackout. At k = 8, the 5 layer model's probe stays between 0.64 and 0.73 px over the 8 frames, while the Kalman filter, with no input either, drifts to 3.9 px by the last blackout frame. The models draw a digit on every blackout frame, on average 0.15 to 0.22 px from where it is in the frame without the blackout (at most 0.30 px on any frame at k = 8): the model tracks the digit on its pixels, not only in a readout of its state.
+- The input comes back to a model that is ready. Over the reappearance frame and the next two, the 5 layer model's probe is 0.72 px off in closed loop, against 7.91 px in open loop (Kalman 1.72 px), and its drawn digit 0.12 px, against 5.54 px.
+- The ConvLSTM gets worse in closed loop. Its probe goes from 3.3 px at the onset to 17 px after 8 frames, and 17 px over the return frames (9.4 px in open loop). Its errors compound when it reads its own predictions.
+
+![Blackout in open and closed loop](../runs/analysis/test_v1/closed_loop/blackout.png)
+
+<sub>`test_v1`, blackout with k = 8: the probe error on y, the drawn digit error on y, the decoder correlation, and the MSE around the digit, in open loop (dotted) and in closed loop over the blackout frames (solid, shaded frames), against the frames since the onset, with the Kalman filter (dashed); bands: standard errors. A dotted line with gaps marks frames where no digit is drawn in most sequences.</sub>
+
+**Under the bar, PredNet's own predictions are as good as the input.** On the hidden frames of the occlusion cells, closed minus open loop is at most 0.005 px for the probe of every PredNet, and at most 0.044 px over the return frames: the predicted frames are the true frames (MSE around the digit about 10⁻⁶ in the middle of the occlusion for the 3 to 5 layer models), so reading them changes nothing. The ConvLSTM again breaks down: +4.36 px [4.22, 4.50] on the hidden frames, +9.56 px [9.32, 9.80] over the return frames, and its drawn digit is 7.31 px off at the return, against 1.16 px in open loop.
+
+**Limits.** One seed per model: seeds 1 and 2 of the 5 layer model come in step 3.7. In closed loop, the model reads frames that show a digit, so for the model a blackout becomes an ordinary visible sequence. The closed loop therefore tests whether the model's own dynamics carry the digit over 2 to 8 frames, not whether the state holds it without input; that is the open loop's question. The closed loop feeds the model its prediction of frame t in place of frame t; the original PredNet code fed the prediction one step earlier, so its closed loop numbers are not comparable. The drawn digit is read as an ink centroid off the bar, and in open loop only on the frames where a digit is drawn, so it is read next to the share of frames drawn. The trackers are scored against the true center, the drawn digit against the ink of the frame without the blackout.
+
+**Decisions.** In open loop, the PredNets keep a hidden digit only when an occluder explains why it is not seen: a missing input erases it, after a single black frame in the 5 layer model and within a few frames in the concat model. Their learned dynamics, however, carry the digit precisely when they run on their own predictions, through a blackout and under the bar alike, and the ConvLSTM's do not. Step 3.7 trains seeds 1 and 2 of the 5 layer model, and step 3.8 gathers the results.
