@@ -41,6 +41,11 @@ def layers_folder(run_dir: Path, data: str) -> Path:
     return run_dir / "eval" / f"layers_{data}"
 
 
+def loop_folder(run_dir: Path, data: str, mode: str) -> Path:
+    """Where the closed loop pass of a run over the cells of one condition of a set is written (step 3.6)."""
+    return run_dir / "eval" / f"loop_{mode}_{data}"
+
+
 def baselines_folder(runs_dir: Path, data: str) -> Path:
     """Where the baselines of a set are written."""
     return runs_dir / "baselines" / data

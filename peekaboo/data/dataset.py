@@ -5,6 +5,7 @@ stored dataset (peekaboo.data.store). Frames stay uint8 until prepare_batch move
 worker to main process transfers four times smaller.
 """
 
+from dataclasses import replace
 from typing import Iterator
 
 import numpy as np
@@ -35,10 +36,16 @@ def truth_arrays(truth: FrameTruth) -> dict[str, np.ndarray]:
 
 
 def make_item(spec: SequenceSpec, amodal: np.ndarray, render_settings: RenderSettings,
-              truth: dict[str, np.ndarray], include_amodal: bool = False) -> dict[str, torch.Tensor]:
-    """Build one sample: observed frames (T, 3, H, W) uint8, ground truth per frame, and the event scalars."""
+              truth: dict[str, np.ndarray], include_amodal: bool = False,
+              include_unblacked: bool = False) -> dict[str, torch.Tensor]:
+    """Build one sample: observed frames (T, 3, H, W) uint8, ground truth per frame, and the event scalars. With
+    include_unblacked, also the frames drawn without the blackout ("unblacked"): what a blackout hides, the
+    reference of the closed loop (step 3.6); they are the observed frames for every other condition."""
     observed = compose_observed(amodal, spec, render_settings)
     item = {"frames": torch.from_numpy(np.ascontiguousarray(observed.transpose(0, 3, 1, 2)))}
+    if include_unblacked:
+        unblacked = compose_observed(amodal, replace(spec, blackout_frames=()), render_settings)
+        item["unblacked"] = torch.from_numpy(np.ascontiguousarray(unblacked.transpose(0, 3, 1, 2)))
     if include_amodal:
         item["amodal"] = torch.from_numpy(np.ascontiguousarray(amodal[:, None]))
     item["center"] = torch.from_numpy(truth["center"].astype(np.float32))
@@ -66,7 +73,8 @@ class OnTheFlyDataset(Dataset):
 
     def __init__(self, pool: DigitPool, settings: GeneratorSettings, render_settings: RenderSettings, split: str,
                  base_seed: int, condition: str | None = None, k: int | None = None, speed: int | None = None,
-                 include_amodal: bool = False, length: int = 2**31 - 1, max_retries: int = 5) -> None:
+                 include_amodal: bool = False, length: int = 2**31 - 1, max_retries: int = 5,
+                 include_unblacked: bool = False) -> None:
         """Store the generation settings; nothing is generated until an index is requested."""
         self.pool = pool
         self.settings = settings
@@ -75,6 +83,7 @@ class OnTheFlyDataset(Dataset):
         self.base_seed = base_seed
         self.condition, self.k, self.speed = condition, k, speed
         self.include_amodal = include_amodal
+        self.include_unblacked = include_unblacked
         self.length = length
         self.max_retries = max_retries
 
@@ -98,7 +107,8 @@ class OnTheFlyDataset(Dataset):
         spec = self.spec(int(index))
         sprite = self.pool.sprite(spec.digit_index)
         truth = truth_arrays(compute_truth(spec, sprite, self.settings.crossing.thresholds))
-        return make_item(spec, render_amodal(spec, sprite), self.render_settings, truth, self.include_amodal)
+        return make_item(spec, render_amodal(spec, sprite), self.render_settings, truth, self.include_amodal,
+                         self.include_unblacked)
 
 
 class IndexRangeSampler(Sampler[int]):
@@ -137,6 +147,8 @@ def prepare_batch(batch: dict[str, torch.Tensor], device: torch.device) -> dict[
     """Move a batch to the device and turn the uint8 frames into float32 values in [0, 1] there."""
     moved = {name: value.to(device) for name, value in batch.items()}
     moved["frames"] = moved["frames"].float().div_(255.0)
+    if "unblacked" in moved:
+        moved["unblacked"] = moved["unblacked"].float().div_(255.0)
     if "amodal" in moved:
         moved["amodal"] = moved["amodal"].float().div_(255.0)
     return moved

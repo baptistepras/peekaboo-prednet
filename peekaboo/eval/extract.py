@@ -17,6 +17,11 @@ it. The programmed trackers do not depend on the model, so they are extracted on
 readouts of single layers of step 3.5 (peekaboo/probes/layers.py) come in a second, lighter pass (layer_frames),
 joined to the first on (sequence, t).
 
+The closed loop pass of step 3.6 (loop_frames) runs on the sequences of one cell condition only, blackout or
+occlusion, twice: in open loop, and in closed loop, where the model reads its own prediction in place of every frame
+from the onset to the reappearance (the blackout or hidden frames). Both are scored against the frames drawn without
+the blackout, what the world shows, so that what the model draws during a blackout can be checked pixel by pixel.
+
 The rows are written by chunks of sequences in a folder (part_<start>.parquet), each chunk renamed into place only
 once complete, so a stopped pass resumes at the first missing chunk.
 """
@@ -51,6 +56,9 @@ MISSING = np.iinfo(np.int64).min  # frames since an event that did not happen
 FRAMES_FORMAT = 2    # version of the columns of a model pass: 2 takes the ink centroid off the bar
 BASELINES_FORMAT = 1  # version of the columns of the baselines
 LAYERS_FORMAT = 1    # version of the columns of a layer pass
+LOOP_FORMAT = 1      # version of the columns of a closed loop pass
+LOOP_MODES = ("blackout", "occlusion")  # the cell conditions of a closed loop pass
+LOOPS = ("open", "closed")
 # what a layer pass keeps of every frame besides the readouts: enough to filter its rows when reading them
 LAYER_ROWS = ["sequence", "t", "y", "x", "condition", "state", "in_window", "since_onset", "since_reappear",
               "tuple_role"]
@@ -138,11 +146,12 @@ def error_activity(errors: list[list[torch.Tensor]], bar: torch.Tensor) -> dict[
 
 
 def readout_columns(prefix: str, model: torch.nn.Module, frames: torch.Tensor, center: np.ndarray,
-                    amodal: torch.Tensor, probe: PositionProbe | None,
-                    decoder: AmodalDecoder | None) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+                    amodal: torch.Tensor, probe: PositionProbe | None, decoder: AmodalDecoder | None,
+                    closed: torch.Tensor | None = None) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     """The probe position (<prefix>probe_y, _x) and the probability of the true bin of each axis, and the decoder's
-    correlation and IoU against the amodal frame, for every frame (B * T values each). Also returns the forward pass."""
-    out = model(frames, return_states=True)
+    correlation and IoU against the amodal frame, for every frame (B * T values each). Also returns the forward pass,
+    in closed loop on the frames of the mask `closed` (B, T) if given."""
+    out = model(frames, return_states=True) if closed is None else model(frames, return_states=True, closed=closed)
     columns: dict[str, np.ndarray] = {}
     states = out["R"]
     if probe is not None:
@@ -241,6 +250,67 @@ def layer_frames(model: torch.nn.Module, dataset: Dataset, start: int, count: in
         for name, (subset, decoder) in decoders.items():
             corr, iou = ink_scores(decoder.to(device).imagine([layers[l] for l in subset]), target)
             columns[f"decoder_{name}_corr"], columns[f"decoder_{name}_iou"] = corr.cpu().numpy(), iou.cpu().numpy()
+        parts.append(rows.assign(**{name: np.asarray(v, dtype=np.float32) for name, v in columns.items()}))
+        first += len(cpu_batch["state"])
+    return pd.concat(parts, ignore_index=True)
+
+
+def cell_range(dataset: Dataset, condition: str) -> tuple[int, int]:
+    """The first index and the number of the sequences of one cell condition of a stored set (no tuple member),
+    which a stored set keeps together."""
+    indices = [i for i, spec in enumerate(dataset.specs)
+               if spec.condition == condition and spec.tuple_role == "none"]
+    if not indices:
+        raise ValueError(f"no {condition} sequence in the set")
+    if indices[-1] - indices[0] + 1 != len(indices):
+        raise ValueError(f"the {condition} sequences of the set are not consecutive")
+    return indices[0], len(indices)
+
+
+def hidden_frames(batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    """(B, T) the frames from the onset to the reappearance, the blackout or hidden frames: the frames a closed loop
+    pass replaces by the model's own predictions."""
+    t = torch.arange(batch["state"].shape[1], device=batch["state"].device)
+    onset, reappear = batch["onset_frame"][:, None], batch["actual_reappear_frame"][:, None]
+    return (onset >= 0) & (t >= onset) & (t < reappear)
+
+
+@torch.no_grad()
+def loop_frames(model: torch.nn.Module, dataset: Dataset, start: int, count: int, device: torch.device,
+                probe: PositionProbe | None = None, decoder: AmodalDecoder | None = None, batch_size: int = 16,
+                workers: int = 0) -> pd.DataFrame:
+    """One row per frame of sequences [start, start + count) of a dataset that includes the amodal and the unblacked
+    frames: what the frame is (describe), whether its input was the model's prediction in closed loop (`closed`), what
+    the frame without the blackout shows (ref_ink, ref_ink_y, ref_ink_x, as ink_readout), and for each loop (open_,
+    closed_): the probe and the decoder, the scores of the prediction against the frame without the blackout (MSE,
+    MAE, SSIM, and the MSE over the bar and around the digit), what the prediction shows (ink_readout), and for
+    PredNet the error units of every layer."""
+    model.eval()
+    parts, first = [], start
+    for cpu_batch in make_loader(dataset, batch_size, start, count, workers):
+        rows = describe(cpu_batch, first)
+        batch = prepare_batch(cpu_batch, device)
+        frames, amodal, reference = batch["frames"], batch["amodal"], batch["unblacked"]
+        center = cpu_batch["center"].numpy().reshape(-1, 2)
+        closed = hidden_frames(batch)
+        bar = bar_mask(frames[:, 0])
+        areas = regions(bar, amodal)
+        columns: dict[str, np.ndarray] = {}
+        reference_ink = ink_readout(reference, bar)
+        values = {f"ref_{name}": reference_ink[name] for name in ("ink", "ink_y", "ink_x")}
+        for loop in LOOPS:
+            readouts, out = readout_columns(f"{loop}_", model, frames, center, amodal, probe, decoder,
+                                            closed if loop == "closed" else None)
+            columns.update(readouts)
+            prediction = out["prediction"]
+            values.update({f"{loop}_{name}": v for name, v in frame_scores(prediction, reference).items()})
+            for area, mask in areas.items():
+                values[f"{loop}_mse_{area}"] = region_mse(prediction, reference, mask)
+            values.update({f"{loop}_{name}": v for name, v in ink_readout(prediction, bar).items()})
+            if "E" in out:
+                values.update({f"{loop}_{name}": v for name, v in error_activity(out["E"], bar).items()})
+        columns.update({name: v.reshape(-1).float().cpu().numpy() for name, v in values.items()})
+        rows = rows.assign(closed=closed.reshape(-1).cpu().numpy())
         parts.append(rows.assign(**{name: np.asarray(v, dtype=np.float32) for name, v in columns.items()}))
         first += len(cpu_batch["state"])
     return pd.concat(parts, ignore_index=True)

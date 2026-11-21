@@ -23,6 +23,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from peekaboo.models.loop import closed_mask
+
 
 ERROR_MODES = ("split", "concat")
 
@@ -97,10 +99,13 @@ class PredNet(nn.Module):
         signals = [reference.new_zeros((batch, 2 * s[l]) + shapes[l]) for l in range(n)]
         return list(zeros), [z.clone() for z in zeros], signals
 
-    def step(self, frame: torch.Tensor, r: list[torch.Tensor], c: list[torch.Tensor], x: list[torch.Tensor]
+    def step(self, frame: torch.Tensor, r: list[torch.Tensor], c: list[torch.Tensor], x: list[torch.Tensor],
+             closed: torch.Tensor | None = None
              ) -> tuple[torch.Tensor, list[torch.Tensor], list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]]:
         """One time step: returns the frame prediction Ahat_0, the new R and C, the signal X that each layer passes
-        to its representation and to the layer above (E_l, or [A_l, Ahat_l] in "concat" mode), and the errors E."""
+        to its representation and to the layer above (E_l, or [A_l, Ahat_l] in "concat" mode), and the errors E.
+        The sequences where `closed` (B,) is True read the prediction Ahat_0 in place of the frame (closed loop), so
+        their pixel errors are 0."""
         n = self.config.n_layers
         new_r, new_c = [None] * n, [None] * n
         # top down: representations, from the previous signals and the upper layer's new representation
@@ -120,6 +125,8 @@ class PredNet(nn.Module):
             if l == 0:
                 ahat = torch.clamp(ahat, max=self.config.pixel_max)  # SatLU
                 prediction = ahat
+                if closed is not None:
+                    target = torch.where(closed[:, None, None, None], ahat, frame)
             new_e.append(torch.cat([F.relu(target - ahat), F.relu(ahat - target)], dim=1))
             new_x.append(new_e[l] if self.config.error_mode == "split" else torch.cat([target, ahat], dim=1))
             if l < n - 1:
@@ -127,23 +134,23 @@ class PredNet(nn.Module):
         return prediction, new_r, new_c, new_x, new_e
 
     def forward(self, frames: torch.Tensor, extrapolate_from: int | None = None,
-                return_states: bool = False) -> dict[str, Any]:
+                return_states: bool = False, closed: torch.Tensor | None = None) -> dict[str, Any]:
         """Run over a sequence. prediction[:, t] predicts frame t from frames before t.
 
-        From step extrapolate_from on, the model's previous prediction replaces the input (closed loop). The output
-        holds "prediction" (B, T, C, H, W), "layer_errors" (B, T, L), the mean activity of each layer's error units,
-        and, if return_states, the lists "R" and "E" with one list of per layer tensors per time step.
+        Closed loop (peekaboo/models/loop.py): where the mask `closed` (B, T) is True, or from step extrapolate_from
+        on, the model reads its prediction of frame t in place of frame t. The original code fed the previous
+        prediction, that of frame t - 1, which shows a model that was not trained in closed loop its digit one frame
+        late. The output holds "prediction" (B, T, C, H, W), "layer_errors" (B, T, L), the mean activity of each
+        layer's error units, and, if return_states, the lists "R" and "E" with one list of per layer tensors per time
+        step.
         """
         batch, seq_len, _, height, width = frames.shape
+        mask = closed_mask(frames, extrapolate_from, closed)
         r, c, x = self.initial_state(batch, height, width, frames)
         predictions, layer_errors, states_r, states_e = [], [], [], []
-        previous = None
         for t in range(seq_len):
-            frame = frames[:, t]
-            if extrapolate_from is not None and t >= extrapolate_from and previous is not None:
-                frame = previous
-            previous, r, c, x, e = self.step(frame, r, c, x)
-            predictions.append(previous)
+            prediction, r, c, x, e = self.step(frames[:, t], r, c, x, None if mask is None else mask[:, t])
+            predictions.append(prediction)
             layer_errors.append(torch.stack([err.mean(dim=(1, 2, 3)) for err in e], dim=1))
             if return_states:
                 states_r.append(r)

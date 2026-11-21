@@ -39,7 +39,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 3.3 | Correction after the reappearance (RQ2): the readouts aligned on the reappearance frame, expected against surprising (AB against B on identical frames), and the latency with a threshold per model: the PredNets need 1 to 3 frames to redraw the digit after a surprise and their probe stays on the old trajectory, the ConvLSTM is not affected (see [Experiments, step 3.3](experiments.md#step-33-correction-after-the-reappearance-rq2)) | done |
 | 3.4 | Surprise (RQ3): the next frame MSE and the error units of every layer in a window after the first frame where the impossible member departs from its history, AB against B on identical frames, with the surprise index, the AUROC, and the key contrast of the hidden bounce (C13): every PredNet is surprised on identical frames, even when nothing appears, and the ConvLSTM is not (see [Experiments, step 3.4](experiments.md#step-34-surprise-rq3)) | done |
 | 3.5 | Inside the state: the probe and the decoder of every layer alone and of every layer but one, the readouts fitted on visible frames only, the belief of every layer after a surprise, and the error units of every layer while the digit is hidden and when it comes back, with their maps: the 4 and 5 layer PredNets hold the hidden digit in their upper layers, redundantly and coded nearly as a visible digit, keep their expectation after a surprise above the pixel layer, and their error units stay quiet while the digit is hidden (see [Experiments, step 3.5](experiments.md#step-35-inside-the-state)) | done |
-| 3.6 to 3.8 | Blackout and closed loop, more seeds, results | planned |
+| 3.6 | Blackout and closed loop: a closed loop mask per sequence and frame in both models, and a pass over the blackout and occlusion cells in open and in closed loop, where the model reads its own predictions over the blackout or hidden frames, scored against the frames without the blackout; the readouts of the state and of the drawn digit, and the return of the input | in progress |
+| 3.7 and 3.8 | More seeds, results | planned |
 
 ## Conventions
 
@@ -233,6 +234,7 @@ PyTorch datasets. Every sample is a dictionary of tensors with the same keys, wh
 | --- | --- | --- |
 | `frames` | (T, 3, H, W) uint8 | observed frames, what the models see |
 | `amodal` | (T, 1, H, W) uint8 | amodal frames, only if `include_amodal=True` |
+| `unblacked` | (T, 3, H, W) uint8 | the frames drawn without the blackout, only if `include_unblacked=True`: what a blackout hides, the reference of the closed loop (step 3.6); the observed frames for every other condition |
 | `center`, `modal_center` | (T, 2) float32 | true and visible ink centers, (y, x) in pixels, NaN when undefined |
 | `velocity` | (T, 2) float32 | px/frame |
 | `visible_fraction` | (T,) float32 | share of the ink visible on screen |
@@ -243,7 +245,7 @@ PyTorch datasets. Every sample is a dictionary of tensors with the same keys, wh
 
 - `OnTheFlyDataset(pool, settings, render_settings, split, base_seed, ...)`: an endless stream for training. Sample `i` is always the same sequence, built from `(base_seed, split, i)`, whichever worker builds it, so no worker seeding is needed and a run can resume at any index. Condition, k, and speed can be fixed to restrict the stream to one cell.
 - `IndexRangeSampler(start, count)` and `make_loader(dataset, batch_size, start, count, num_workers)`: a loader over indices `[start, start + count)`. Training step `s` with batch size `b` can start at `s * b`, so every sample is new and the order is reproducible. Workers always use spawn, the macOS default, so what works on the Mac also works on the cluster.
-- `prepare_batch(batch, device)`: moves a batch to the device and turns the frames into float32 in [0, 1] there. Frames stay uint8 until then, which makes worker transfers four times smaller.
+- `prepare_batch(batch, device)`: moves a batch to the device and turns the frames (and the amodal and unblacked frames) into float32 in [0, 1] there. Frames stay uint8 until then, which makes worker transfers four times smaller.
 
 #### `peekaboo/data/store.py`
 
@@ -308,7 +310,7 @@ PredNet (Lotter, Kreiman, and Cox, ICLR 2017), reimplemented in PyTorch from the
 - **Loss**: the weighted mean activity of the error units. With "L0" the pixel layer has weight 1 and the others 0. The first step has weight 0 and the others 1 / (T - 1).
 - **Initialization**: Glorot uniform kernels and zero biases, as in Keras.
 
-`model(frames)` takes frames (B, T, 3, H, W) in [0, 1] and returns `prediction` (B, T, 3, H, W), where `prediction[:, t]` predicts frame t from the frames before it, and `layer_errors` (B, T, L). `return_states=True` also returns R and E of every layer at every step, for the probes and the error maps. `extrapolate_from=s` switches to closed loop from step s: the previous prediction replaces the input, as in the original code. `model.loss(layer_errors)` gives the training loss.
+`model(frames)` takes frames (B, T, 3, H, W) in [0, 1] and returns `prediction` (B, T, 3, H, W), where `prediction[:, t]` predicts frame t from the frames before it, and `layer_errors` (B, T, L). `return_states=True` also returns R and E of every layer at every step, for the probes and the error maps. Closed loop (`peekaboo/models/loop.py`): `closed`, a boolean mask (B, T), makes the model read its own prediction of frame t in place of frame t wherever it is True, per sequence; `extrapolate_from=s` closes every frame from step s on. The pixel layer then compares its prediction with itself, so its errors are 0, as if the frame were exactly as predicted. The original code fed the previous prediction instead, that of frame t - 1: a model that was not trained in closed loop would then see its digit one frame late, and move it at half its speed. `model.loss(layer_errors)` gives the training loss.
 
 **Ablation without explicit error units** (`error_mode: concat`, decision D11). Each layer passes [A_l, Ahat_l] to its representation and to the layer above, instead of E_l = [ReLU(A_l - Ahat_l), ReLU(Ahat_l - A_l)]. Both have 2 x channels of layer l, so the two modes have exactly the same parameters and the same weights fit both. A convolution can still learn the difference, so this ablation removes the inductive bias of computing the error, not any capacity. It is close to the control of Lotter et al. that passes A_l only, with the prediction added. The error units are still computed, for the loss (`layer_errors`) and for the readouts (`E`), so both modes are measured the same way. `step(frame, r, c, x)` returns the prediction, R, C, the passed on signal X, and the errors E.
 
@@ -330,12 +332,16 @@ The ConvLSTM baseline (Shi et al., NeurIPS 2015), written from the paper. It is 
 - **Cell** (`ConvLSTMCell`): Eq. 3 of the paper, with peepholes from the cell state to the input and forget gates (previous state) and to the output gate (new state), standard sigmoid gates, and one convolution of [X_t, H_{t-1}] for the four gates. **Deviation**: one peephole weight per channel instead of one per channel and pixel. Weights per pixel would give the model a code of absolute position that PredNet, fully convolutional, does not have, and the position probes (step 2.8) would then compare unequal models.
 - **Architecture** (`configs/models/convlstm.yaml`): each frame is cut into 4 x 4 patches (space to depth, as in OpenSTL for Moving MNIST), so the layers run on a 16 x 24 grid with 48 input channels; four layers of 64 channels with 5 x 5 kernels; and a 1 x 1 convolution on the hidden states of all layers gives the patches of the predicted frame, as in the paper's forecasting network. The output goes through ReLU and is clipped at 1, like PredNet's pixel layer, so both models can predict an exactly black background. 3,188,528 parameters, within 2% of PredNet 5 layers.
 - **Why 4 x 4 patches.** Nearly all parameters of a ConvLSTM sit in convolutions applied at every position, so its compute per frame is about its parameters times the grid size. With 2 x 2 patches (a 32 x 48 grid), the parameter matched model would compute about 14 times more than PredNet 5 layers per frame; with 4 x 4 patches, about 3.6 times. A digit of 20 px spans 5 patches and moves at most one patch per frame.
-- **Interface**: the same as PredNet. `model(frames)` returns `prediction`, where `prediction[:, t]` predicts frame t from the frames before it (the first prediction, from zero states, is black). `return_states=True` adds `R`: for each step t, the hidden states H of each layer that make the prediction of frame t (they have seen frames 0 to t - 1), the counterpart of PredNet's R for the probes. `extrapolate_from=s` switches to closed loop: from step s on, the prediction of frame t replaces frame t as input. There are no error units: the model trains on the common loss of `peekaboo/train/losses.py`.
+- **Interface**: the same as PredNet. `model(frames)` returns `prediction`, where `prediction[:, t]` predicts frame t from the frames before it (the first prediction, from zero states, is black). `return_states=True` adds `R`: for each step t, the hidden states H of each layer that make the prediction of frame t (they have seen frames 0 to t - 1), the counterpart of PredNet's R for the probes. Closed loop: where the mask `closed` (B, T) is True, or from step `extrapolate_from` on, the prediction of frame t replaces frame t as input, as in PredNet. There are no error units: the model trains on the common loss of `peekaboo/train/losses.py`.
 - `ConvLSTMConfig.from_config(config)`, `initial_state`, `readout(h)` (the frame predicted from the hidden states), and `step(frame, h, c)`.
 
 #### `peekaboo/models/__init__.py`
 
 `build_model(config)` builds a model from a model config, chosen by its `model` key: `prednet` or `convlstm`.
+
+#### `peekaboo/models/loop.py`
+
+`closed_mask(frames, extrapolate_from, closed)`: the mask (B, T) of the frames a model reads in closed loop, shared by PredNet and the ConvLSTM: the given mask, or every frame from `extrapolate_from` on, or None for the open loop. Frame 0 is never closed, since nothing predicted it. In both models, a closed frame t is replaced by the model's prediction of frame t, made from the inputs before t, so a closed loop pass is exactly the open loop pass on frames where the closed ones are these predictions.
 
 ### Training
 
@@ -509,9 +515,10 @@ One pass of a trained model over a stored set, saving per frame everything the P
   - the position probe (`probe_y`, `probe_x`, and the probability of the true bin of each axis) and the amodal decoder (`decoder_corr`, `decoder_iou`) saved in the run, and the same for the random initialization control (`random_*`), rebuilt with the seed the control was fitted with;
   - for PredNet, the mean activity of the error units of every layer (`error_activity`, `e<l>`), and over the bar region taken at the layer's resolution (`e<l>_bar`).
 - `layer_frames(model, dataset, start, count, device, probes, decoders)`: the second, lighter pass of step 3.5: per frame, a few columns that say what the frame is (to filter the rows), the position of every probe of `peekaboo/probes/layers.py` (`probe_<readout>_y`, `_x`), and the correlation and IoU of every decoder (`decoder_<readout>_corr`, `_iou`). Saved in `<run>/eval/layers_<set>/` and joined to the first pass on (sequence, frame).
+- `loop_frames(model, dataset, start, count, device, probe, decoder)`: the closed loop pass of step 3.6, on the sequences of one cell condition (`cell_range` finds them, consecutive in a stored set). The model runs twice: in open loop, and in closed loop over the frames from the onset to the reappearance (`hidden_frames`: the blackout or hidden frames, `closed` in the rows). Per frame: what the frame is (`describe`); what the frame without the blackout shows (`ref_ink`, `ref_ink_y`, `ref_ink_x`, by `ink_readout`); and for each loop (`open_`, `closed_`) the probe and the decoder, the next frame scores and the MSE over the bar and around the digit against the frame without the blackout, what the prediction shows (`ink_readout`), and for PredNet the error units of every layer. Saved in `<run>/eval/loop_<mode>_<set>/`.
 - `baseline_frames(dataset, start, count)`: the programmed baselines, which do not depend on the model, once per set: the position predicted by every tracker, the bar center x, and the templates moved by the Kalman filters, scored against the amodal frame.
 - `run_chunks(folder, count, chunk, make_part, settings)`: writes the rows by chunks of sequences (`part_<start>.parquet`, each renamed into place once complete), skips the chunks already written, so a stopped pass resumes, refuses a folder written with other settings, and marks the folder complete in its `info.json`. `read_frames(folder, columns, filters)` reads a complete pass (all its columns, or some, and only the rows that pass parquet filters), `is_complete`, `chunks_written`, and `pass_format` give its state.
-- `FRAMES_FORMAT`, `BASELINES_FORMAT`, and `LAYERS_FORMAT`: the version of the columns of a model pass (2, the centroid off the bar), of the baselines (1), and of a layer pass (1), saved in `info.json`. The analyses refuse a pass with older columns, and `scripts/extract.py --status` gives the command that writes it again.
+- `FRAMES_FORMAT`, `BASELINES_FORMAT`, `LAYERS_FORMAT`, and `LOOP_FORMAT`: the version of the columns of a model pass (2, the centroid off the bar), of the baselines (1), of a layer pass (1), and of a closed loop pass (1), saved in `info.json`. The analyses refuse a pass with older columns, and `scripts/extract.py --status` gives the command that writes it again.
 
 #### `peekaboo/eval/stats.py`
 
@@ -524,7 +531,7 @@ The statistics of the Phase 3 analyses. A per frame table has many correlated fr
 
 #### `peekaboo/eval/tables.py`
 
-The extraction tables as the analyses read them. `available_runs(runs_dir, data)` finds every seed of every sweep model with a complete pass on a set (the failed runs kept as records are left out) and refuses a pass with older columns; `read_runs(runs, baselines, conditions, columns, roles, rows)` reads their rows of some conditions (and tuple roles: `none` for the sequences of the cells; `rows` keeps only the rows matching one of several lists of parquet conditions), with `model` and `seed`, joined with the baselines of the set (columns a pass does not have, such as the error units of the ConvLSTM, are NaN in its rows; `extract.frame_columns(folder)` lists those it has); `add_errors` adds the error of every position readout on y, x, and the distance (`probe_err_y`, `kalman_err`, ...); `per_sequence(table, column)` gives one value per seed and sequence, as `stats.py` takes them. `frames_folder`, `layers_folder`, and `baselines_folder` give where the passes of a set are.
+The extraction tables as the analyses read them. `available_runs(runs_dir, data)` finds every seed of every sweep model with a complete pass on a set (the failed runs kept as records are left out) and refuses a pass with older columns; `read_runs(runs, baselines, conditions, columns, roles, rows)` reads their rows of some conditions (and tuple roles: `none` for the sequences of the cells; `rows` keeps only the rows matching one of several lists of parquet conditions), with `model` and `seed`, joined with the baselines of the set (columns a pass does not have, such as the error units of the ConvLSTM, are NaN in its rows; `extract.frame_columns(folder)` lists those it has); `add_errors` adds the error of every position readout on y, x, and the distance (`probe_err_y`, `kalman_err`, ...); `per_sequence(table, column)` gives one value per seed and sequence, as `stats.py` takes them. `frames_folder`, `layers_folder`, `loop_folder`, and `baselines_folder` give where the passes of a set are.
 
 #### `peekaboo/eval/occlusion.py`
 
@@ -567,6 +574,14 @@ Inside the state (step 3.5), from the extraction tables and the layer passes (`r
 - `belief(table)`: where the belief is after a surprise (left open by step 3.3, where the probe stayed on the old trajectory while the drawn digit was corrected): the probe's distance to the true center and the decoder's correlation of every readout, averaged over the 6 frames from each member's own reappearance, the impossible member minus the possible one on the same tuples (AB - B, BA - A), with Kalman.
 - `errors(table)`: the error units of every PredNet layer, on the whole frame and over the bar, relative to their mean on the fully visible frames before the onset of the cells (per model and seed): their curve against the frames since the onset, and their mean over the hidden frames and over the reappearance frame and the next two. Below 1 while hidden, the layer has little to correct while it predicts the bar; above 1 at the reappearance, the digit coming back is a surprise for it.
 - `plot_layers`, `plot_visible`, `plot_belief`, and `plot_errors`: every layer alone and all but one against the layer, with all the layers, the visible readout, and Kalman; the `all` and `visible` readouts against the frames since the onset; the belief difference per layer and surprise kind; and the relative error units per layer, the hidden frames shaded.
+
+#### `peekaboo/eval/closed_loop.py`
+
+Blackout and closed loop (step 3.6), from the closed loop passes of every model on the blackout and the occlusion cells (`loop_runs`, `read_loops`, joined with the trackers of the set), one value per sequence and seed.
+
+- `add_loop_errors(table)`: for each loop, the probe's error on y against the true center, the drawn digit's error on y (the ink centroid off the bar of the prediction against that of the frame without the blackout), and whether a digit is drawn where that frame shows one.
+- `summary(table)`: per mode, frames, and k (all and each), on the blackout or hidden frames and on the reappearance frame and the next two: the probe's error on y, the decoder's correlation, the drawn digit's error and the share of frames where it is drawn, and the MSE around the digit, for each loop with bootstrap intervals, with the Kalman filter and the last seen position next to the position measures; and closed minus open loop on the same sequences. The open loop on the blackout frames, next to the hidden frames of the occlusion cells with the same k, says whether the state keeps the digit when the input disappears (D13); the closed loop says whether the model keeps it when it runs on its own predictions (C10). During a blackout the drawn digit is not behind the bar, so its position tests tracking on the pixels themselves (H1a).
+- `curves(table)` and `plot_loop(curve, mode, path, title)`: the same measures against the frames since the onset, per k, open and closed loop, with Kalman; the blackout or hidden frames shaded.
 
 #### `peekaboo/eval/compare.py`
 
@@ -643,6 +658,7 @@ peekaboo/           the package
   models/           video prediction models (build_model in __init__.py)
     prednet.py      PredNet and its ablations
     convlstm.py     ConvLSTM baseline
+    loop.py         closed loop mask shared by the models
   trackers/         programmed baselines
     detector.py     digit detector
     kalman.py       Kalman filters, with and without walls
@@ -663,6 +679,7 @@ peekaboo/           the package
     correction.py   correction after the reappearance (RQ2)
     surprise.py     surprise (RQ3)
     layers.py       inside the state: layers, visible readouts, belief, error units
+    closed_loop.py  blackout and closed loop
   train/            training
     loop.py         training loop, validation, resume
     sweep.py        training sweep: runs, stages, state, checks
@@ -704,6 +721,7 @@ scripts/            command line entry points
   fit_layers.py         probes and decoders of single layers of a run
   analyze_layers.py     inside the state (step 3.5)
   show_errors.py        error maps of a saved PredNet
+  analyze_closed_loop.py  blackout and closed loop (step 3.6)
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set

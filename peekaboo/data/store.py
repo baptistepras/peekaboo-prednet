@@ -90,7 +90,7 @@ class StoredDataset(Dataset):
     """A stored dataset, returning the same samples as OnTheFlyDataset for the same specs."""
 
     def __init__(self, directory: str | Path, render_settings: RenderSettings | None = None,
-                 include_amodal: bool = False) -> None:
+                 include_amodal: bool = False, include_unblacked: bool = False) -> None:
         """Load specs, sprites, ground truth, and metadata; frames are rendered when a sample is requested."""
         self.directory = Path(directory)
         self.info = load_config(self.directory / "info.yaml")
@@ -108,6 +108,7 @@ class StoredDataset(Dataset):
         self.render_settings = render_settings or RenderSettings(digit_rgb=tuple(render["digit_rgb"]),
                                                                  bar_value=int(render["bar_value"]))
         self.include_amodal = include_amodal
+        self.include_unblacked = include_unblacked
 
     def __len__(self) -> int:
         """Number of sequences."""
@@ -118,7 +119,7 @@ class StoredDataset(Dataset):
         spec = self.specs[i]
         amodal = render_amodal(spec, self.sprites[spec.digit_index])
         truth = {key: values[i] for key, values in self.truth.items()}
-        return make_item(spec, amodal, self.render_settings, truth, self.include_amodal)
+        return make_item(spec, amodal, self.render_settings, truth, self.include_amodal, self.include_unblacked)
 
     def verify(self, i: int) -> bool:
         """Check that sequence i renders to exactly the frames it had when the dataset was written."""

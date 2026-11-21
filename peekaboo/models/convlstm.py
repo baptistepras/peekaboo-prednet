@@ -23,6 +23,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from peekaboo.models.loop import closed_mask
+
 
 @dataclass(frozen=True)
 class ConvLSTMConfig:
@@ -104,14 +106,16 @@ class ConvLSTM(nn.Module):
         return new_h, new_c
 
     def forward(self, frames: torch.Tensor, extrapolate_from: int | None = None,
-                return_states: bool = False) -> dict[str, Any]:
+                return_states: bool = False, closed: torch.Tensor | None = None) -> dict[str, Any]:
         """Run over a sequence. prediction[:, t] predicts frame t from frames before t.
 
-        From step extrapolate_from on, the prediction of frame t replaces frame t as input (closed loop). The output
+        Closed loop (peekaboo/models/loop.py): where the mask `closed` (B, T) is True, or from step extrapolate_from
+        on, the prediction of frame t replaces frame t as input. The output
         holds "prediction" (B, T, C, H, W) and, if return_states, "R": one list per time step of the hidden states H
         of each layer that make the prediction of frame t, the counterpart of PredNet's R.
         """
         batch, seq_len, _, height, width = frames.shape
+        mask = closed_mask(frames, extrapolate_from, closed)
         h, c = self.initial_state(batch, height, width, frames)
         predictions, states = [], []
         for t in range(seq_len):
@@ -121,8 +125,10 @@ class ConvLSTM(nn.Module):
                 states.append(h)
             if t == seq_len - 1:
                 break  # the last frame would only update states that predict nothing
-            closed = extrapolate_from is not None and t >= extrapolate_from
-            h, c = self.step(prediction if closed else frames[:, t], h, c)
+            frame = frames[:, t]
+            if mask is not None:
+                frame = torch.where(mask[:, t, None, None, None], prediction, frame)
+            h, c = self.step(frame, h, c)
         out = {"prediction": torch.stack(predictions, dim=1)}
         if return_states:
             out["R"] = states
