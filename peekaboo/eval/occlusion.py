@@ -26,7 +26,7 @@ from matplotlib.figure import Figure
 
 from peekaboo.eval.extract import MIN_INK
 from peekaboo.eval.stats import bootstrap, paired_difference
-from peekaboo.eval.tables import per_sequence
+from peekaboo.eval.tables import per_sequence, reference_rows
 from peekaboo.train.sweep import SWEEP
 
 CONDITIONS = ("occlusion", "hidden_bounce")
@@ -62,7 +62,7 @@ class Readout:
             if self.random is not None:
                 out.append((f"{model}, random init", "random", self.random, own))
         if len(rows):
-            first = rows[rows["model"] == rows["model"].iloc[0]]
+            first = reference_rows(rows)
             out += [(label, "reference", column, first) for label, column in self.references.items()]
         return out
 
@@ -196,7 +196,8 @@ def decay(table: pd.DataFrame) -> pd.DataFrame:
                 for who, kind, column, own in readout.lines(own_k):
                     out.append({"condition": condition, "k": int(k), "readout": readout.name, "who": who,
                                 "kind": kind, **interval(bootstrap(slopes(own, column)), "slope_"),
-                                **interval(bootstrap(per_sequence(last[last["model"] == own["model"].iloc[0]],
+                                **interval(bootstrap(per_sequence(last[last["model"].eq(own["model"].iloc[0])
+                                                                       & last["seed"].isin(own["seed"].unique())],
                                                                   column)), "last_")})
     return pd.DataFrame(out)
 
@@ -241,7 +242,7 @@ def emergence_lines(rows: pd.DataFrame, measure: str) -> list[tuple[str, str, st
     _, column, references = MEASURES[measure]
     out = [(model, "model", column, own) for model, own in rows.groupby("model", sort=False)]
     if len(rows):
-        first = rows[rows["model"] == rows["model"].iloc[0]]
+        first = reference_rows(rows)
         out += [(label, "reference", ref, first) for label, ref in references.items()]
     return out
 
@@ -295,7 +296,7 @@ def timing(table: pd.DataFrame) -> pd.DataFrame:
         for k, scope in scopes(rows):
             lines = [(model, "model", own, "pred_exit") for model, own in scope.groupby("model", sort=False)]
             if len(scope):
-                lines.append(("copy", "reference", scope[scope["model"] == scope["model"].iloc[0]], "copy_exit"))
+                lines.append(("copy", "reference", reference_rows(scope), "copy_exit"))
             for who, kind, own, column in lines:
                 true = first_emergence(own, "true_exit")
                 lag = (first_emergence(own, column) - true)[true.notna()]

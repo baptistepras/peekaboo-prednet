@@ -181,6 +181,22 @@ def fake_loops() -> pd.DataFrame:
     return pd.concat(parts, ignore_index=True)
 
 
+def test_analysis_with_several_seeds() -> None:
+    """A second seed whose closed loop probe is 1 px further off moves the model's mean by 0.5 px; the references are
+    read once."""
+    table = fake_loops()
+    second = table.assign(seed=1, closed_probe_y=table["closed_probe_y"] + 1.0)
+    tables = closed_loop(add_loop_errors(pd.concat([table, second], ignore_index=True)))
+    hidden = tables["summary"]
+    hidden = hidden[(hidden["frames"] == "hidden") & (hidden["k"] == "all") & (hidden["mode"] == "blackout")]
+    value = hidden.set_index(["who", "loop", "measure"])["mean"]
+    assert value[("PredNet", "closed", "probe_y")] == pytest.approx(1.5)
+    assert value[("Kalman", "", "probe_y")] == pytest.approx(3.0)
+    curve = tables["curves"]
+    kalman = curve[(curve["who"] == "Kalman") & (curve["mode"] == "blackout") & (curve["measure"] == "probe_y")]
+    assert (kalman["n"] == 6).all()
+
+
 def test_analysis_on_a_fake_table(tmp_path: Path) -> None:
     """The summary, the paired differences, and the curves give the known answers, and the figures are written."""
     tables = closed_loop(add_loop_errors(fake_loops()))

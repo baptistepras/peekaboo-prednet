@@ -92,6 +92,38 @@ def test_decay(table: pd.DataFrame) -> None:
     assert np.isclose(flat["slope_mean"].item(), 0.0) and np.isclose(flat["last_mean"].item(), 2.0)
 
 
+def test_several_seeds() -> None:
+    """Model A has three seeds whose probes are 0, 0.3, and 0.6 px apart, B one seed. A's curve is the mean of its
+    seeds, with the spread of the seed means as its standard error; B is compared with every seed of A on the same
+    sequences; the references (here a Kalman filter 2 to 4 px off) are read once, so their standard error is that of
+    the sequences, not the 0 of three identical seeds."""
+    parts = []
+    for model, lag, seeds in (("A", 0, (0, 1, 2)), ("B", -1, (0,))):
+        for seed in seeds:
+            for condition, first in (("occlusion", 0), ("hidden_bounce", 100)):
+                part = fake_sequences(model, lag, condition, first)
+                parts.append(part.assign(seed=seed, probe_y=part["probe_y"] + 0.3 * seed,
+                                         kalman_y=32.0 + part["sequence"] % 3))
+    many = add_errors(pd.concat(parts, ignore_index=True))
+    curve = curves(many)
+    probe = curve[(curve["condition"] == "occlusion") & (curve["readout"] == "probe_y")]
+    mine = probe[probe["who"] == "A"].set_index("j")
+    assert np.isclose(mine.loc[0, "mean"], 0.3) and np.isclose(mine.loc[0, "se"], 0.3 / np.sqrt(3))
+    kalman = probe[probe["who"] == "Kalman"].set_index("j")
+    errors = 2.0 + np.arange(6) % 3
+    assert np.isclose(kalman.loc[0, "mean"], 3.0) and np.isclose(kalman.loc[0, "se"], errors.std(ddof=1) / np.sqrt(6))
+
+    _, paired = hidden_summary(many, reference="A")
+    versus = paired[(paired["model"] == "B") & (paired["against"] == "A") & (paired["readout"] == "probe_y")
+                    & (paired["k"] == "all") & (paired["condition"] == "occlusion")]
+    assert np.isclose(versus["mean"].item(), -0.3)
+    slopes = decay(many)
+    flat = slopes[(slopes["condition"] == "occlusion") & (slopes["readout"] == "probe_y")
+                  & (slopes["who"] == "Kalman")]
+    assert np.isclose(flat["last_mean"].item(), 3.0) and np.isclose(flat["slope_mean"].item(), 0.0)
+    assert len(timing(many))
+
+
 def test_emergence_and_timing(table: pd.DataFrame) -> None:
     """The exit side is found on each condition, every drawn ink is on it, the copy shows the true exit ink one frame
     late; A comes out on time, B one frame early, and the copy one frame late."""

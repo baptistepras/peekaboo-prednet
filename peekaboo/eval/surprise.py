@@ -34,6 +34,7 @@ from peekaboo.eval.correction import matrix, scopes
 from peekaboo.eval.extract import MISSING
 from peekaboo.eval.occlusion import draw_line, group_mean_se, interval, model_colors
 from peekaboo.eval.stats import bootstrap_auroc, paired_difference
+from peekaboo.eval.tables import reference_rows
 
 CONDITIONS = ("occlusion", "hidden_bounce", "surprise", "empty")
 WINDOW = 5                 # frames read for the surprise, from the first frame where AB departs from its history
@@ -63,7 +64,7 @@ def lines(rows: pd.DataFrame, signal: str) -> list[tuple[str, str, str, pd.DataF
     out = [(model, "model", column, own) for model, own in rows.groupby("model", sort=False)
            if column in own and own[column].notna().any()]
     if len(rows):
-        first = rows[rows["model"] == rows["model"].iloc[0]]
+        first = reference_rows(rows)
         out += [(label, "reference", ref, first) for label, ref in references.items()]
     return out
 

@@ -23,7 +23,7 @@ from matplotlib.figure import Figure
 from peekaboo.eval.extract import LOOP_FORMAT, LOOP_MODES, LOOPS, is_complete, pass_format, read_frames
 from peekaboo.eval.occlusion import BEFORE, EMERGING, group_mean_se, interval, model_colors, scopes
 from peekaboo.eval.stats import bootstrap, paired_difference
-from peekaboo.eval.tables import KEYS, ModelRun, loop_folder, per_sequence
+from peekaboo.eval.tables import KEYS, ModelRun, loop_folder, per_sequence, reference_rows
 from peekaboo.train.sweep import FAILED, SWEEP
 
 K_SHOWN = 8  # the k of the curves in the figures (both cell conditions have it)
@@ -127,7 +127,7 @@ def summary(table: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
                         paired.append({**where, "who": model, "measure": measure, "difference": "closed - open",
                                        **interval(paired_difference(values["closed"], values["open"]))})
                 if len(own):
-                    first = own[own["model"] == own["model"].iloc[0]]
+                    first = reference_rows(own)
                     for name, column in REFERENCES.items():
                         if column in first:
                             for measure in (m for m in POSITION if m in measures):
@@ -147,7 +147,7 @@ def curves(table: pd.DataFrame) -> pd.DataFrame:
                 for loop in LOOPS:
                     parts.append(group_mean_se(mine, MEASURES[measure][1].format(loop), ["k", "since_onset"]).assign(
                         mode=mode, measure=measure, who=model, kind="model", loop=loop))
-        first = own[own["model"] == own["model"].iloc[0]]
+        first = reference_rows(own)
         if "kalman_err_y" in first:
             for measure in POSITION:
                 parts.append(group_mean_se(first, "kalman_err_y", ["k", "since_onset"]).assign(

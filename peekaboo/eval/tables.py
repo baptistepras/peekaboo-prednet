@@ -102,6 +102,14 @@ def add_errors(table: pd.DataFrame) -> pd.DataFrame:
     return table.assign(**columns)
 
 
+def reference_rows(rows: pd.DataFrame) -> pd.DataFrame:
+    """The rows of the first model's first seed. The references (the trackers, the copy of the last frame) are the same
+    for every run of a set, so they are read once: read on every seed of a model, they would count as seeds that agree
+    exactly, and their standard error over seeds would be 0."""
+    first = rows[rows["model"] == rows["model"].iloc[0]]
+    return first[first["seed"] == first["seed"].min()]
+
+
 def per_sequence(table: pd.DataFrame, column: str) -> pd.DataFrame:
     """One value per seed and sequence, the mean of a column over the rows of each: one row per seed, one column per
     sequence, as peekaboo/eval/stats.py takes them."""

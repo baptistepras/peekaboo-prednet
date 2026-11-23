@@ -29,7 +29,7 @@ from peekaboo.eval.occlusion import (EMERGING, around_hidden, draw_line, event_r
                                      model_colors)
 from peekaboo.eval.stats import bootstrap, paired_difference
 from peekaboo.eval.surprise import KINDS, LAYERS, PAIRS, tuple_rows
-from peekaboo.eval.tables import ModelRun, layers_folder, per_sequence, read_runs
+from peekaboo.eval.tables import ModelRun, layers_folder, per_sequence, read_runs, reference_rows
 from peekaboo.probes.layers import VISIBLE, VISIBLE_STATE
 
 CONDITIONS = ("occlusion", "hidden_bounce", "surprise", "empty")
@@ -126,7 +126,7 @@ def readouts(table: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
                         if name != "all":
                             paired.append({**line, "against": "all", **interval(paired_difference(values, base))})
             if len(rows):
-                first = rows[rows["model"] == rows["model"].iloc[0]]
+                first = reference_rows(rows)
                 summary.append({**where, "who": "Kalman", "kind": "reference", "readout": "", "measure": "probe_y",
                                 **interval(bootstrap(per_sequence(first, REFERENCES["probe_y"])))})
     return pd.DataFrame(summary), pd.DataFrame(paired)
@@ -165,7 +165,7 @@ def belief(table: pd.DataFrame) -> pd.DataFrame:
             lines += [(model, "model", name, measure, own, template.format(name)) for name in names
                       if present(own, template.format(name))]
     if len(rows) and "probe" in BELIEF_MEASURES:
-        first = rows[rows["model"] == rows["model"].iloc[0]]
+        first = reference_rows(rows)
         lines.append(("Kalman", "reference", "", "probe", first, REFERENCES["probe"]))
     out = []
     for who, kind, name, measure, own, column in lines:
