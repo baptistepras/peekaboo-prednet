@@ -42,7 +42,7 @@ How the project works, step by step and module by module. Commands are in [usage
 | 3.6 | Blackout and closed loop: a closed loop mask per sequence and frame in both models, and a pass over the blackout and occlusion cells in open and in closed loop, where the model reads its own predictions over the blackout or hidden frames, scored against the frames without the blackout; the readouts of the state and of the drawn digit, and the return of the input | done |
 | 3.7 | More seeds: seeds 1 and 2 of PredNet 5 layers, trained, evaluated, and passed over the test set as seed 0 | done |
 | 3.8 | Results: one script makes every figure and table of Phase 3 from the saved runs and passes, the examples of every model, and the summary tables (headline numbers, every seed of the reference model) | done |
-| 4 | Harder synthetic data: blackouts during training, then several digits in a scene | planned |
+| 4 | Harder synthetic data: blackouts during training, several digits in a scene, several bars, and varied backgrounds | planned |
 
 ## Conventions
 
