@@ -40,8 +40,8 @@ How the project works, step by step and module by module. Commands are in [usage
 | 3.4 | Surprise (RQ3): the next frame MSE and the error units of every layer in a window after the first frame where the impossible member departs from its history, AB against B on identical frames, with the surprise index, the AUROC, and the key contrast of the hidden bounce (C13): every PredNet is surprised on identical frames, even when nothing appears, and the ConvLSTM is not (see [Experiments, step 3.4](experiments.md#step-34-surprise-rq3)) | done |
 | 3.5 | Inside the state: the probe and the decoder of every layer alone and of every layer but one, the readouts fitted on visible frames only, the belief of every layer after a surprise, and the error units of every layer while the digit is hidden and when it comes back, with their maps: the 4 and 5 layer PredNets hold the hidden digit in their upper layers, redundantly and coded nearly as a visible digit, keep their expectation after a surprise above the pixel layer, and their error units stay quiet while the digit is hidden (see [Experiments, step 3.5](experiments.md#step-35-inside-the-state)) | done |
 | 3.6 | Blackout and closed loop: a closed loop mask per sequence and frame in both models, and a pass over the blackout and occlusion cells in open and in closed loop, where the model reads its own predictions over the blackout or hidden frames, scored against the frames without the blackout; the readouts of the state and of the drawn digit, and the return of the input | done |
-| 3.7 | More seeds: seeds 1 and 2 of PredNet 5 layers, trained, evaluated, and passed over the test set as seed 0 | in progress |
-| 3.8 | Results | planned |
+| 3.7 | More seeds: seeds 1 and 2 of PredNet 5 layers, trained, evaluated, and passed over the test set as seed 0 | done |
+| 3.8 | Results: one script makes every figure and table of Phase 3 from the saved runs and passes, the examples of every model, and the summary tables (headline numbers, every seed of the reference model) | done |
 
 ## Conventions
 
@@ -585,6 +585,13 @@ Blackout and closed loop (step 3.6), from the closed loop passes of every model 
 - `summary(table)`: per mode, frames, and k (all and each), on the blackout or hidden frames and on the reappearance frame and the next two: the probe's error on y, the decoder's correlation, the drawn digit's error and the share of frames where it is drawn, and the MSE around the digit, for each loop with bootstrap intervals, with the Kalman filter and the last seen position next to the position measures; and closed minus open loop on the same sequences. The open loop on the blackout frames, next to the hidden frames of the occlusion cells with the same k, says whether the state keeps the digit when the input disappears (D13); the closed loop says whether the model keeps it when it runs on its own predictions (C10). During a blackout the drawn digit is not behind the bar, so its position tests tracking on the pixels themselves (H1a).
 - `curves(table)` and `plot_loop(curve, mode, path, title)`: the same measures against the frames since the onset, per k, open and closed loop, with Kalman; the blackout or hidden frames shaded.
 
+#### `peekaboo/eval/results.py`
+
+The results of Phase 3 in one place (step 3.8), as `scripts/make_results.py` writes them.
+
+- `HEADLINE` and `headline(folder)`: one row per model (in the order of the sweep, then the Kalman filter), one column per main number of each research question, each read from the table an analysis wrote in `runs/analysis/<set>/` (nothing is recomputed): the probe on the hidden frames of the occlusion and hidden bounce cells, its slope over 12 hidden frames, the share of digits drawn again on time, the drawn digit's latency after `direction` (AB - B), the probe fitted on visible frames only, the blackout probe in open and closed loop, and the lowest AUROC of the next frame MSE over the surprise kinds. `pick(table, where, who)` refuses a selection that matches several rows.
+- `seed_numbers(frames, blackout)` and `seed_table(runs_dir, data)`: every seed of the reference model, read from its runs: the best step and the validation MSE there and at the last step, the gate D16, and on the set, the probe and the decoder on the hidden frames of the occlusion cells and the probe on the blackout frames in open and closed loop, as means over sequences of one seed (the analyses give the same over the seeds together).
+
 #### `peekaboo/eval/compare.py`
 
 Comparison of the models of the training sweep, read from the outputs every run already has: its validation log and the reports of the gate, the probes, and the decoder. Nothing is recomputed.
@@ -682,6 +689,7 @@ peekaboo/           the package
     surprise.py     surprise (RQ3)
     layers.py       inside the state: layers, visible readouts, belief, error units
     closed_loop.py  blackout and closed loop
+    results.py      the summary of Phase 3: headline numbers, seeds
   train/            training
     loop.py         training loop, validation, resume
     sweep.py        training sweep: runs, stages, state, checks
@@ -724,6 +732,7 @@ scripts/            command line entry points
   analyze_layers.py     inside the state (step 3.5)
   show_errors.py        error maps of a saved PredNet
   analyze_closed_loop.py  blackout and closed loop (step 3.6)
+  make_results.py       every result of Phase 3 from the saved runs (step 3.8)
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set
@@ -745,7 +754,7 @@ docs/               documentation
   experiments.md    training experiments and their results
 runs/pilot_prednet5l_w10/  the reference pilot run (step 2.4)
 runs/sweep_summary/        the comparison of the sweep models (step 2.10)
-runs/analysis/test_v1/     the Phase 3 analyses of the test set
+runs/analysis/test_v1/     the Phase 3 analyses of the test set, the examples, and the summary
 README.md           project page
 LICENSE             MIT license of the project's code
 environment.yml     conda environment "peekaboo"
