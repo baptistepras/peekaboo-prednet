@@ -172,6 +172,8 @@ Only the 5 layer model shows the pilot's sudden change (its validation MSE halve
 
 ## Step 3.2: tracking through occlusion (RQ1)
 
+*Written with one seed per model. Since [step 3.7](#step-37-more-seeds-of-the-reference-model), the tables and figures of `runs/analysis/test_v1/` pool the three seeds of PredNet 5 layers, so for that model they differ slightly from the numbers below; step 3.7 gives both.*
+
 **Question.** While the digit is hidden, does each model keep it, and does it lose it faster when it stays hidden longer (H1b)? And does the model draw the digit again at the right frame and in the right place when it comes out (H1a)? A hidden digit is not to be drawn, so the predicted frames say something only when the digit comes out; what the model holds while it is hidden is read from its state, with the position probe and the amodal decoder.
 
 **Setup.** The five sweep models (one seed each, seed 1 for 4 layers) on `test_v1`: the 5600 sequences of the occlusion cells (k = 2, 4, 6, 8, 12; the members of surprise tuples are left to RQ2 and RQ3) and the 2400 hidden bounce sequences (k = 4, 8). Each model ran once over the set (step 3.1, about 8 h for the five models), and `scripts/analyze_occlusion.py` reads the saved frames (`runs/analysis/test_v1/occlusion/`). Every value is first averaged per sequence; intervals are 95% percentile bootstraps over sequences (2000 resamples), and comparisons are paired on the same sequences. Every choice (the frames shown, the emergence window and threshold, the measures) was fixed on `dev_v1` and committed before `test_v1` was run.
@@ -263,6 +265,8 @@ The timing compares the first frame with at least one pixel's worth of ink on th
 
 ## Step 3.3: correction after the reappearance (RQ2)
 
+*Written with one seed per model. Since [step 3.7](#step-37-more-seeds-of-the-reference-model), the tables and figures of `runs/analysis/test_v1/` pool the three seeds of PredNet 5 layers, so for that model they differ slightly from the numbers below; step 3.7 gives both.*
+
 **Question.** When the digit comes back into view, how many frames does each model need to be right again, and is it slower when the reappearance is surprising (H2)? An expected reappearance tests whether the model was ready for it; a surprising one tests how fast it gives up its expectation.
 
 **Setup.** The five sweep models (one seed each) on `test_v1`, from the passes of step 3.1 (`scripts/analyze_correction.py`, about a minute; `runs/analysis/test_v1/correction/`). Everything is aligned on the actual reappearance frame (j = 0, the first frame with visible ink). Expected reappearances: the 5600 occlusion and 2400 hidden bounce sequences of the cells. Surprising ones: the impossible member of each surprise tuple (600 per kind, 200 for the speed kinds) against the possible member that ends with exactly the same frames: AB against B, so the difference comes from the history alone. For `vanish`, AB never reappears; its BA, where the digit appears from nowhere, is compared with A. Three readouts, each with its references:
@@ -337,6 +341,8 @@ The PredNets draw the digit where it comes out and keep it in their state throug
 **Decisions.** RQ2 is answered for this sweep. Step 3.4 measures the surprise itself, in the prediction errors right after the reappearance (AB against B, with AUROC), and the key contrast between `direction` and the hidden bounce. Step 3.5 should read the state of the AB sequences layer by layer, to see where the old trajectory is kept.
 
 ## Step 3.4: surprise (RQ3)
+
+*Written with one seed per model. Since [step 3.7](#step-37-more-seeds-of-the-reference-model), the tables and figures of `runs/analysis/test_v1/` pool the three seeds of PredNet 5 layers, so for that model they differ slightly from the numbers below; step 3.7 gives both.*
 
 **Question.** Are the prediction errors larger after a surprising event than after a matched plausible one, and can they tell the two apart (H3)?
 
@@ -427,6 +433,8 @@ Three measures per tuple: the surprise index (the window mean of AB minus that o
 
 ## Step 3.5: inside the state
 
+*Written with one seed per model. Since [step 3.7](#step-37-more-seeds-of-the-reference-model), the tables and figures of `runs/analysis/test_v1/` pool the three seeds of PredNet 5 layers, so for that model they differ slightly from the numbers below; step 3.7 gives both.*
+
 **Question.** Which layers of the state hold the hidden digit, and do they code it as they code a visible one? After a surprise, which layers keep the expectation? What do the error units of each layer do while the digit is hidden and when it comes back?
 
 **Setup.** The five sweep models (one seed each) on `test_v1`. `scripts/fit_layers.py` fits the readouts again on subsets of the layers of the state R, on the same training stream frames as steps 2.8 and 2.9 (6 to 9 minutes per run). There are four kinds of subsets: all the layers, every layer alone, every layer but one, and all the layers fitted on the fully visible frames only. The probes are the ridge probes of (y, x), and the decoders are the minimal decoder of step 2.9. A second, lighter pass of each model over the set reads every readout on every frame (`scripts/extract.py --layers`, about 5 h for the five models), and `scripts/analyze_layers.py` reads it with the passes of step 3.1 (about a minute; `runs/analysis/test_v1/layers/`). The probe on all the layers is the probe of step 3.1: the largest difference is 8 x 10⁻⁶ px. The intervals are 95% bootstraps over sequences (5600 occlusion and 2400 hidden bounce sequences) or over tuples. Every choice was fixed on `dev_v1` and committed before `test_v1` was run, and `dev_v1` gives the same numbers within 0.2 px.
@@ -515,6 +523,8 @@ Three measures per tuple: the surprise index (the window mean of AB minus that o
 
 ## Step 3.6: blackout and closed loop
 
+*Written with one seed per model. Since [step 3.7](#step-37-more-seeds-of-the-reference-model), the tables and figures of `runs/analysis/test_v1/` pool the three seeds of PredNet 5 layers, so for that model they differ slightly from the numbers below; step 3.7 gives both.*
+
 **Question.** Does the state keep the digit when the input disappears, rather than being hidden by an occluder (D13)? Does the model keep it when it runs on its own predictions (C10), and does it then draw the digit in the right place, on the pixels themselves (H1a)? Is it ready when the input comes back?
 
 **Setup.** The five sweep models (one seed each) on `test_v1`, over the 1800 blackout sequences (k in {2, 4, 8} at speeds 2, 3, and 4, 600 sequences per k) and the 5600 occlusion sequences. During a blackout, every frame is black, the bar included, a case never seen in training. `scripts/extract.py --closed-loop` runs each model twice over these sequences. The first run is in open loop, as in the other steps. The second is in closed loop: from the onset to the reappearance, the model reads its own prediction of each frame in place of the frame. Both runs are scored against the frames drawn without the blackout. The passes take 6 to 11 minutes per model on the blackout cells and 18 to 33 minutes on the occlusion cells (2 h 36 in all). `scripts/analyze_closed_loop.py` reads them with the trackers of the set in 20 s (`runs/analysis/test_v1/closed_loop/`). The measures:
@@ -565,3 +575,103 @@ On the hidden frames of the occlusion cells, the frame without the blackout show
 **Limits.** One seed per model: seeds 1 and 2 of the 5 layer model come in step 3.7. In closed loop, the model reads frames that show a digit, so for the model a blackout becomes an ordinary visible sequence. The closed loop therefore tests whether the model's own dynamics carry the digit over 2 to 8 frames, not whether the state holds it without input; that is the open loop's question. The closed loop feeds the model its prediction of frame t in place of frame t; the original PredNet code fed the prediction one step earlier, so its closed loop numbers are not comparable. The drawn digit is read as an ink centroid off the bar, and in open loop only on the frames where a digit is drawn, so it is read next to the share of frames drawn. The trackers are scored against the true center, the drawn digit against the ink of the frame without the blackout.
 
 **Decisions.** In open loop, the PredNets keep a hidden digit only when an occluder explains why it is not seen: a missing input erases it, after a single black frame in the 5 layer model and within a few frames in the concat model. Their learned dynamics, however, carry the digit precisely when they run on their own predictions, through a blackout and under the bar alike, and the ConvLSTM's do not. Step 3.7 trains seeds 1 and 2 of the 5 layer model, and step 3.8 gathers the results.
+
+## Step 3.7: more seeds of the reference model
+
+**Question.** Steps 3.2 to 3.6 used one training run per model, so their intervals, over test sequences, say how that run behaves, not how the architecture trained this way behaves. How much do the results of the reference model change from one training seed to another?
+
+**Setup.** Seeds 1 and 2 of PredNet 5 layers, the reference model and the fastest to train (step 2.10). They use the config of the sweep run, with only the seed changed, so that the three seeds differ by nothing else, and go through the same chain as seed 0 (`scripts/sweep.py`): training for 15k steps (about 7.5 h each), the gate D16 on `val_v1`, the readouts of steps 2.8, 2.9, and 3.5, and every pass over `test_v1` (the extraction pass, 74 to 77 min; the layers pass, about 50 min; the closed loop passes, 24 min). The run of record of each seed is its best validation checkpoint, a rule fixed before training. The analyses of steps 3.2 to 3.6 then run again on `test_v1` with the three seeds. The seeds are the outer level of the statistics: each bootstrap resample draws seeds, then sequences (the same sequences for every seed), and the standard error is over the seed means. The trackers, the copy, and the blank frame are read once. The other models keep one seed.
+
+**Seed 1's gradient exploded.** At step 9965, 35 steps before the learning rate drop, the gradient norm rose to 15, then to 157.5 at step 9975, despite clipping at 1.0. The run never recovered: its validation MSE was 8.8 x 10⁻⁴ at step 15000, against 1.3 x 10⁻⁴ at step 9500. By the rule, its run of record is the checkpoint of step 9500, and the seed is kept: dropping or replacing a seed because of its outcome would bias the pooled numbers. It is the second explosion of the project, after PredNet 4 layers seed 0 (step 2.10), and the first one late in a good run. The two seeds kept the sweep config on purpose, so the fix proposed in step 2.10 (a learning rate warmup or a larger Adam epsilon) is left to future runs.
+
+Every seed of PredNet 5 layers (`runs/analysis/test_v1/summary/seeds.csv`). The gate and the validation MSE are on `val_v1`; the other columns are on `test_v1`, as means over sequences:
+
+| Seed | Run of record (step) | Validation MSE there | At step 15000 | Gate D16 | Probe error on y, hidden | Decoder correlation, hidden | Blackout probe, open loop | Closed loop |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 15000 | 1.01 x 10⁻⁴ | 1.01 x 10⁻⁴ | 97.0% | **0.64 px** | 0.76 | 7.34 px | **0.67 px** |
+| 1 | 9500 | 1.34 x 10⁻⁴ | 8.83 x 10⁻⁴ | 95.5% | 0.80 px | 0.76 | 7.46 px | 0.80 px |
+| 2 | 15000 | 1.07 x 10⁻⁴ | 1.07 x 10⁻⁴ | 96.9% | 0.72 px | **0.82** | **6.01 px** | 0.71 px |
+
+The hidden frames are those of the occlusion cells; the blackout columns are over the blackout frames.
+
+**Seed 0 against the three seeds.** The main numbers of steps 3.2 to 3.6 for PredNet 5 layers, as written there with seed 0, and with the three seeds (95% intervals with the seeds as the outer level):
+
+| Measure | Seed 0 | Three seeds |
+| --- | --- | --- |
+| Probe error on y, hidden frames of the occlusion cells | 0.64 px [0.63, 0.65] | 0.72 px [0.64, 0.80] |
+| Probe error on y, hidden frames of the hidden bounce cells | 0.98 px | 1.02 px [0.97, 1.07] |
+| Probe error on y, last hidden frame at k = 12 | 0.71 px | 0.80 px [0.71, 0.91] |
+| Largest slope of the probe error over the hidden frames, k = 2 to 12 | 0.011 px per frame | 0.015 px per frame |
+| Digit drawn again on time | 92% | 87% |
+| Drawn digit latency after `direction`, AB - B | 2.74 frames [2.63, 2.86] | 2.76 frames [2.59, 2.94] |
+| Probe error after `direction`, AB - B, frames 0 to 5 | 15.30 px [14.84, 15.79] | 15.72 px [14.70, 16.93] |
+| AUROC of the next frame MSE, AB against B, every kind | 0.995 to 1.00 | 0.99 to 1.00 |
+| Probe fitted on visible frames only, hidden frames | 1.12 px [1.10, 1.14] | 1.26 px [1.09, 1.56] |
+| Largest loss without any one layer | 0.12 px [0.11, 0.12] | 0.08 px [0.06, 0.12] |
+| Blackout, probe in open loop | 7.34 px | 6.93 px [6.07, 7.56] |
+| Blackout, probe in closed loop | 0.67 px | 0.73 px [0.67, 0.80] |
+| Occlusion, hidden frames, closed - open loop | at most +0.005 px | +0.035 px [-0.000, +0.100] |
+
+- **Every conclusion holds with three seeds.** Each seed reads the hidden digit within 0.64 to 0.80 px, far better than the Kalman filter (2.38 px). In open loop, each loses the digit during a blackout (6.0 to 7.5 px, about as far as the last seen position, 6.4 px), and in closed loop each keeps it (0.67 to 0.80 px). Pooled over the seeds, the error still does not grow over 12 hidden frames, and a surprising history still raises the error on identical frames in every kind (AUROC 0.98 to 1.00, with the mirror BA - A).
+- **The spread between seeds is larger than the intervals over sequences.** Seed 0's interval on the hidden probe, [0.63, 0.65], does not contain seed 1's 0.80 px or seed 2's 0.72 px: seed 0 was the best of the three, and the numbers of steps 3.2 to 3.6 are a little optimistic for the architecture. The pooled intervals are 5 to 10 times wider than seed 0's. With three seeds, the bootstrap draws from only 10 sets of seeds, so these intervals are rough.
+- **Seed 1 is the weakest, as its training suggests.** It has the largest hidden probe error (0.80 px) and the largest blackout error in closed loop (0.80 px). Its readouts still hold the digit better than the 4 layer model's (0.86 px).
+- **Under the bar, the closed loop now costs a little.** With seed 0 alone it cost nothing (at most +0.005 px); with the three seeds it costs +0.035 px [-0.000, +0.100], which one of the new seeds must carry. The tables pool the seeds, so they do not say which.
+- **Differences between models must be read against this spread.** In the tables of `runs/analysis/test_v1/`, the paired differences against PredNet 5 layers set each other model's single seed against the mean of the three seeds, and their intervals are over sequences only: they leave out the spread between seeds of PredNet 5 layers and the unknown spread of the other model. The spread of the three seeds, 0.64 to 0.80 px, is the scale to compare with. Against it, the concat model (0.76 px) cannot be told from PredNet 5 layers. PredNet 4 layers (0.86 px) is worse than every seed, though by little. PredNet 3 layers (1.46 px) and the ConvLSTM (5.13 px) are far outside the spread.
+
+**Limits.** Three seeds of one model; every other model has one, so the differences between architectures rest on one run each. Seed 1 is a damaged run kept by a rule, so the pooled numbers include a training failure, as a fresh training of this config would sometimes do.
+
+**Decisions.** The README and step 3.8 report PredNet 5 layers with its three seeds, and the other models with their one seed. Small differences between models (a few tenths of a pixel) are reported as differences between runs. Seeds of the concat model, the next candidate (the comparison that tests the role of the explicit error units), are not trained in this phase, so that comparison rests on one concat run.
+
+## Step 3.8: results
+
+**Setup.** `scripts/make_results.py` remakes every result of Phase 3 from the saved runs and passes, in 17 minutes on the Mac. It runs the sweep comparison (`runs/sweep_summary/`), the five analyses on `test_v1`, and the examples. It then writes the summary tables to `runs/analysis/test_v1/summary/`:
+- `headline.csv`: the main number of each research question for every model;
+- `seeds.csv`: every seed of the reference model.
+
+No number or figure of the README or of this file is made by hand. Every number comes from a table in `runs/analysis/test_v1/`, and every figure is drawn by a script.
+
+**The main numbers.** `test_v1`, 95% intervals (PredNet 5 layers: three seeds, as the outer level; other models: one seed, over sequences). Each column:
+- probe error on y on the hidden frames of the occlusion and hidden bounce cells;
+- its slope over 12 hidden frames;
+- the share of digits drawn again on the frame they come out;
+- the drawn digit's latency after a reappearance on the wrong side, minus the control's;
+- the lowest AUROC of the next frame MSE over the surprise kinds (AB against B and BA against A);
+- a probe fitted on visible frames only;
+- the probe during a blackout in open and closed loop.
+
+| Model | Hidden, probe (px) | Hidden bounce (px) | Slope, k = 12 (px per frame) | Drawn on time | Latency after `direction`, AB - B (frames) | Lowest surprise AUROC | Visible frames probe (px) | Blackout, open (px) | Blackout, closed (px) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers (3 seeds) | **0.72** [0.64, 0.80] | **1.02** [0.97, 1.07] | **0.012** [0.007, 0.018] | 87% | 2.76 [2.59, 2.94] | 0.98 [0.98, 0.99] | **1.26** [1.09, 1.56] | 6.93 [6.07, 7.56] | **0.73** [0.67, 0.80] |
+| PredNet 5 layers, concat | 0.76 [0.74, 0.77] | 1.13 [1.10, 1.15] | 0.016 [0.011, 0.021] | 90% | 2.62 [2.52, 2.72] | 0.87 [0.86, 0.89] | 1.37 [1.34, 1.40] | **3.76** [3.60, 3.92] | 0.76 [0.73, 0.78] |
+| PredNet 4 layers | 0.86 [0.84, 0.87] | 1.23 [1.20, 1.26] | 0.018 [0.012, 0.024] | 91% | 2.75 [2.64, 2.86] | 0.99 [0.99, 0.99] | 1.58 [1.55, 1.62] | 6.44 [6.22, 6.67] | 0.86 [0.84, 0.89] |
+| PredNet 3 layers | 1.46 [1.44, 1.49] | 2.07 [2.01, 2.12] | 0.031 [0.020, 0.042] | **93%** | 2.61 [2.49, 2.73] | **1.00** [0.99, 1.00] | 3.17 [3.09, 3.24] | 7.12 [6.92, 7.33] | 1.37 [1.33, 1.41] |
+| ConvLSTM | 5.13 [5.03, 5.22] | 5.86 [5.71, 6.02] | 0.829 [0.781, 0.879] | 22% | 0.01 [-0.01, 0.03] | 0.50 [0.50, 0.50] | 9.10 [8.95, 9.25] | 7.51 [7.33, 7.70] | 8.84 [8.60, 9.09] |
+| constant velocity Kalman filter | 2.38 [2.21, 2.54] | 2.55 [2.29, 2.80] | 0.840 [0.751, 0.926] | | | | | | |
+
+The lowest AUROC is on `vanish` BA - A for PredNet 5 layers and concat, on `early` AB - B for 4 layers, and on `speed_slow` BA - A for 3 layers. In the blackout, the Kalman filter is 1.35 px off and the last seen position 6.39 px.
+
+**Answers to the research questions.**
+- **RQ1, tracking through occlusion.** Every PredNet keeps the hidden digit in its state, and the error barely grows with the length of the occlusion, up to 12 frames: at most 0.06 px per hidden frame for every PredNet (0.015 px for 5 layers), against about 0.8 px for the ConvLSTM and the Kalman filter. The PredNets also keep the digit through a bounce off a wall while hidden, and draw it again on the frame it comes out (87 to 93%). The ConvLSTM, with the same budget, loses it.
+- **RQ2, correction after the reappearance.** After an expected reappearance, the PredNets have nothing to correct (latency under 0.1 frame). After a surprising one, they first draw the digit where they expected it, and need 1 to 3 more frames than on the same frames with an ordinary history. Their probe stays on the old trajectory longer still. The ConvLSTM corrects nothing because it expected nothing.
+- **RQ3, surprise.** On identical frames, a surprising history raises the PredNets' prediction error in nearly every tuple of every kind, even when nothing appears (`vanish`). The error alone tells the impossible member from the possible one (AUROC 0.87 to 1.00, at least 0.98 for 3 to 5 layers). The same return explained by a wall costs far less. The ConvLSTM is at chance.
+- **Inside the state.** The digit is held in the upper layers, and a probe fitted on visible frames only reads it there. While it is hidden, holding it costs no error activity.
+- **Without an occluder.** The digit is lost when the input goes black. On its own predictions (closed loop), every PredNet carries the digit through the blackout, on the pixels.
+
+**Examples** (`runs/analysis/test_v1/examples/`). For every model, the predictions with the probe and the decoder on the first test sequence with k = 8 of the occlusion (#3600), hidden bounce (#8000), and blackout (#10400) cells; and for PredNet 5 layers seed 0, the error units of every layer on the same occlusion and on the first `direction` tuple (#12200 to #12203), as PNG figures and GIFs.
+
+![PredNet 5 layers in open loop during a blackout](../runs/analysis/test_v1/examples/sweep_prednet5l/blackout_10400.png)
+
+<sub>`test_v1` #10400, blackout with k = 8 (frames 23 to 30, gray strip), PredNet 5 layers seed 0 in open loop: the true frame (hidden ink in cyan), the prediction with the true digit outlined, the probe (yellow cross) and the decoder (magenta), and the prediction error. From the first black frame, the model smears the digit down the bar and its probe drifts away from the digit.</sub>
+
+![Error units after a surprising reappearance](../runs/analysis/test_v1/examples/errors/direction_AB_12202.png)
+
+<sub>`test_v1` #12202, `direction` AB: the digit goes behind the bar from the right and comes back out on the right. PredNet 5 layers seed 0, the true frame, the prediction, and the mean activity of the error units of each layer. From the reappearance (t = 24), the model draws the digit on the expected side (left) as well as on the true one, and every layer's errors rise on both sides.</sub>
+
+**Limits of the whole study.**
+- **Seeds.** PredNet 5 layers has three seeds and every other model one, so differences of a few tenths of a pixel between architectures are differences between runs (step 3.7). Two of the eight sweep trainings had their gradient explode (PredNet 4 layers seed 0, PredNet 5 layers seed 1).
+- **Synthetic data.** One MNIST digit on a black background, a straight motion at constant speed, bounces off the side walls, and a single gray bar. Such motion is exactly what a constant velocity model predicts. The results show what PredNet learns on these sequences, not on natural video, where occluders, motion, and backgrounds vary.
+- **One ConvLSTM budget.** The ConvLSTM has the PredNets' parameter count and training steps, with one config, and it passes the gate only just (42%). Its failure to track is a result for this budget, not for ConvLSTMs: a longer run or smaller patches might track.
+- **Linear readouts.** The probe and the decoder show that the hidden digit can be read linearly from the state, not that the model uses that code. Two results point to use: the probe fitted on visible frames only, and the digit drawn on the pixels in closed loop.
+- **One test set, run once.** Every analysis choice was fixed on `dev_v1`. The intervals cover the test sequences, and for PredNet 5 layers its seeds, not other data sets.
+
+**Decisions.** Phase 3 is complete. The README states the results with these limits.
