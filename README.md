@@ -113,7 +113,7 @@ Every number and figure is remade from the saved runs by one command (`python -m
 | 3.1 to 3.6 | Development set, extraction pass over the test set, statistics, tracking through occlusion (RQ1), correction after the reappearance (RQ2), surprise (RQ3), inside the state (layers and error units), and blackout and closed loop | done |
 | 3.7 | Seeds 1 and 2 of PredNet 5 layers, and every analysis again with the three seeds | done |
 | 3.8 | Results: one script that remakes every result, summary tables, examples of every model, and the write-up | done |
-| 4 | Harder synthetic data: blackouts during training, several digits in a scene, several bars, and varied backgrounds | planned |
+| 4 | Harder synthetic data: blackouts during training, several digits in a scene, several bars, and varied backgrounds | in progress |
 
 The detailed status of every step is in [docs/implementation.md](docs/implementation.md#status).
 

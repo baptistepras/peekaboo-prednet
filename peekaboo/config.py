@@ -46,12 +46,21 @@ def apply_overrides(config: dict[str, Any], overrides: Sequence[str],
 
     With strict=True, a key that is not already in the config raises a KeyError.
     """
-    result = copy.deepcopy(config)
+    values = {}
     for item in overrides:
         if "=" not in item:
             raise ValueError(f"Override '{item}' must look like key.path=value.")
         dotted, raw_value = item.split("=", 1)
-        keys = dotted.strip().split(".")
+        values[dotted.strip()] = yaml.safe_load(raw_value)
+    return apply_values(config, values, strict)
+
+
+def apply_values(config: dict[str, Any], values: dict[str, Any], strict: bool = True) -> dict[str, Any]:
+    """Return a copy of the config with each "a.b.c" key of `values` set to its value (a mapping replaces the whole
+    entry). With strict=True, a key that is not already in the config raises a KeyError."""
+    result = copy.deepcopy(config)
+    for dotted, value in values.items():
+        keys = dotted.split(".")
         node = result
         for key in keys[:-1]:
             if key not in node:
@@ -63,5 +72,5 @@ def apply_overrides(config: dict[str, Any], overrides: Sequence[str],
                 raise KeyError(f"Config key '{dotted}' goes through a non mapping value.")
         if strict and keys[-1] not in node:
             raise KeyError(f"Unknown config key '{dotted}'.")
-        node[keys[-1]] = yaml.safe_load(raw_value)
+        node[keys[-1]] = copy.deepcopy(value)
     return result

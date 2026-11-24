@@ -69,14 +69,18 @@ FAILED = (SweepRun("sweep_prednet4l", "PredNet 4 layers, seed 0 (failed)", 13.3,
 SEEDS = (SweepRun("sweep_prednet5l", "PredNet 5 layers, seed 1", 7.5, 20, seed=1),
          SweepRun("sweep_prednet5l", "PredNet 5 layers, seed 2", 7.5, 20, seed=2))
 REFERENCE = "sweep_prednet5l"  # the reference model (README, Phase 3): best readouts, fastest to train
+# step 4.1: PredNet 5 layers trained with blackouts (configs/train/blackout_prednet5l.yaml), seeds 0, 1, and 2, trained
+# and evaluated through the same stages as the sweep runs
+BLACKOUT = tuple(SweepRun("blackout_prednet5l", "PredNet 5 layers, blackouts" + (f", seed {seed}" if seed else ""),
+                          7.5, 20, seed=seed) for seed in (0, 1, 2))
 
 
 def find_run(key: str) -> SweepRun:
-    """The sweep run with this key."""
-    for run in SWEEP:
+    """The run with this key: a sweep run, or the first seed of the runs of step 4.1."""
+    for run in SWEEP + BLACKOUT:
         if run.key == key:
             return run
-    raise KeyError(f"unknown sweep run '{key}': {', '.join(r.key for r in SWEEP)}")
+    raise KeyError(f"unknown sweep run '{key}': {', '.join(dict.fromkeys(r.key for r in SWEEP + BLACKOUT))}")
 
 
 def stage_commands(run: SweepRun, restart: str = "") -> dict[str, str]:

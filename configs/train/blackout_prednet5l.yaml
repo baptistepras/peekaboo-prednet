@@ -1,0 +1,37 @@
+# Step 4.1: PredNet 5 layers trained with blackouts. Everything is the sweep config of PredNet 5 layers
+# (sweep_prednet5l.yaml) except the training mix, which gives 10% of the sequences to blackouts (k drawn with the
+# k weights, at the most covered frame of a control crossing, as in the blackout cells of the test sets) and keeps the
+# v1 proportions of the other conditions, and the loss, which leaves the predictions of the blackout frames out
+# (loss.blackout: masked, see peekaboo/train/losses.py). The override changes the training stream only: validation on
+# val_v1, the readouts, and the evaluation sets are those of v1. About 7 h 30 on an Apple M5.
+# Paths are relative to the project root.
+name: blackout_prednet5l
+model: configs/models/prednet_5l.yaml
+data: configs/data/base.yaml
+
+data_overrides:
+  conditions.train_mix: {control: 0.27, occlusion: 0.54, hidden_bounce: 0.09, blackout: 0.1}
+
+train:
+  steps: 15000         # 240,000 new sequences of the training mix
+  batch_size: 16
+  seq_len: 40          # whole sequences, as in the evaluation
+  workers: 4
+  seed: 0              # seeds 0, 1, and 2, as PredNet 5 layers in v1
+  log_every: 100
+
+optimizer:
+  lr: 0.001            # Adam, as in Lotter et al.
+  lr_drop_at: 0.66667  # divided by 10 from step 10000 on
+  lr_drop_factor: 0.1
+  grad_clip: 1.0
+
+loss:
+  digit_weight: 10     # visible digit pixels of the target frames count 10 times in the L1 loss
+  blackout: masked     # the predictions of the blackout frames are left out of the loss
+
+validation:
+  data: val_v1
+  every: 500           # 31 validations; last.pt is saved at each one
+  sequences: null      # the whole set, 1000 sequences
+  batch_size: 16

@@ -1,5 +1,6 @@
 """Tests for the training loop: a tiny CPU run, exact resume, the learning rate schedule, losses, and validation."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -136,6 +137,42 @@ def test_validation_reports_the_blank_frame(pool: DigitPool, settings: Generator
     metrics = validate(BlankFrame(), val_data, 4, 2, 6, CPU)
     assert set(VAL_FIELDS) == set(metrics) | {"step", "best_step"}
     assert metrics["val_mse"] == pytest.approx(metrics["blank_mse"]) and metrics["blank_mse"] > 0
+
+
+def test_blackout_loss_setting() -> None:
+    """loss.blackout is read from the config, plain by default, and an unknown value is refused."""
+    config = load_config(CONFIGS_DIR / "train" / "smoke.yaml")
+    assert TrainSettings.from_config(config).blackout_loss == "plain"
+    config["loss"]["blackout"] = "masked"
+    assert TrainSettings.from_config(config).blackout_loss == "masked"
+    with pytest.raises(ValueError):
+        replace(SETTINGS, blackout_loss="black")
+
+
+def test_validation_with_blackout_losses(pool: DigitPool, settings: GeneratorSettings) -> None:
+    """Without blackouts the three losses validate the same; with blackouts, leaving the black frames out or scoring
+    against the unblacked frames changes val_loss only, and only the val_loss of a model that draws in them."""
+    _, val_data = streams(pool, settings)
+    plain = validate(CopyLastFrame(), val_data, 4, 2, 40, CPU, 10.0)
+    assert validate(CopyLastFrame(), val_data, 4, 2, 40, CPU, 10.0, "masked") == pytest.approx(plain)
+    blackouts = OnTheFlyDataset(pool, settings, RENDER, "val", 0, condition="blackout", k=4, length=4,
+                                include_unblacked=True)
+    scores = {mode: validate(CopyLastFrame(), blackouts, 4, 2, 40, CPU, 10.0, mode)
+              for mode in ("plain", "masked", "unblacked")}
+    assert len({round(s["val_loss"], 9) for s in scores.values()}) == 3
+    assert all(s["val_mse"] == scores["plain"]["val_mse"] for s in scores.values())
+
+
+def test_tiny_run_with_blackouts(tmp_path: Path, pool: DigitPool, settings: GeneratorSettings) -> None:
+    """A run on a stream of blackouts with the masked loss trains, validates, and saves its best checkpoint."""
+    torch.manual_seed(0)
+    model = build_model(MODEL)
+    stream = OnTheFlyDataset(pool, replace(settings, train_mix={"blackout": 1.0}), RENDER, "train", 0)
+    _, val_data = streams(pool, settings)
+    train(tmp_path, model, stream, val_data, replace(SETTINGS, seq_len=40, blackout_loss="masked"),
+          {"name": "test", "model": MODEL}, CPU, log=lambda line: None)
+    assert (tmp_path / "best.pt").exists()
+    assert all(float(r["loss"]) > 0 for r in read_csv(tmp_path / "train_metrics.csv"))
 
 
 def test_durations_read_well() -> None:

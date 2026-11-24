@@ -25,7 +25,7 @@ from peekaboo.config import save_config
 from peekaboo.data.dataset import make_loader, prepare_batch
 from peekaboo.eval.next_frame import blank_prediction
 from peekaboo.train.checkpoint import load_checkpoint, save_checkpoint
-from peekaboo.train.losses import training_loss, weighted_pixel_loss
+from peekaboo.train.losses import BLACKOUT_LOSSES, loss_targets, training_loss, weighted_pixel_loss
 from peekaboo.train.metrics import TRAIN_FIELDS, VAL_FIELDS, CsvLog
 from peekaboo.viz.curves import plot_training
 
@@ -47,18 +47,25 @@ class TrainSettings:
     val_sequences: int | None = None  # None: the whole validation set
     val_batch_size: int = 16
     digit_weight: float = 1.0         # weight of the visible digit pixels in the loss, 1 for PredNet's own loss
+    blackout_loss: str = "plain"      # how blackout frames are scored (peekaboo/train/losses.py, step 4.1)
+
+    def __post_init__(self) -> None:
+        """Refuse an unknown blackout loss."""
+        if self.blackout_loss not in BLACKOUT_LOSSES:
+            raise ValueError(f"unknown loss.blackout '{self.blackout_loss}', expected one of {BLACKOUT_LOSSES}")
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "TrainSettings":
         """Build the settings from a training config (sections train, optimizer, validation, and optionally loss)."""
         train, optimizer, validation = config["train"], config["optimizer"], config["validation"]
+        loss = config.get("loss", {})
         return cls(steps=int(train["steps"]), batch_size=int(train["batch_size"]), seq_len=int(train["seq_len"]),
                    workers=int(train.get("workers", 0)), log_every=int(train.get("log_every", 50)),
                    lr=float(optimizer["lr"]), lr_drop_at=optimizer.get("lr_drop_at"),
                    lr_drop_factor=float(optimizer.get("lr_drop_factor", 0.1)), grad_clip=optimizer.get("grad_clip"),
                    val_every=int(validation["every"]), val_sequences=validation.get("sequences"),
                    val_batch_size=int(validation.get("batch_size", 16)),
-                   digit_weight=float(config.get("loss", {}).get("digit_weight", 1.0)))
+                   digit_weight=float(loss.get("digit_weight", 1.0)), blackout_loss=str(loss.get("blackout", "plain")))
 
 
 def learning_rate(step: int, settings: TrainSettings) -> float:
@@ -79,30 +86,36 @@ def format_duration(seconds: float) -> str:
 
 @torch.no_grad()
 def validate(model: torch.nn.Module, dataset: Dataset, count: int, batch_size: int, seq_len: int,
-             device: torch.device, digit_weight: float = 1.0) -> dict[str, float]:
+             device: torch.device, digit_weight: float = 1.0, blackout_loss: str = "plain") -> dict[str, float]:
     """Validation scores on the first `count` sequences, over frames 1 to seq_len - 1.
 
-    val_loss is the weighted pixel loss of the training objective, which chooses the best checkpoint. The plain L1
-    and squared errors per pixel of the model, of copying the last frame, and of the blank frame (the true frame with
-    its digit erased, where a model that never draws the digit settles) are given for reference.
+    val_loss is the weighted pixel loss of the training objective, blackout frames scored as in training, which
+    chooses the best checkpoint. The plain L1 and squared errors per pixel of the model, of copying the last frame,
+    and of the blank frame (the true frame with its digit erased, where a model that never draws the digit settles)
+    are given for reference.
     """
     was_training = model.training
     model.eval()
     sums = {"val_loss": 0.0, "val_l1": 0.0, "val_mse": 0.0, "copy_l1": 0.0, "copy_mse": 0.0, "blank_l1": 0.0,
             "blank_mse": 0.0}
-    pixels = 0
+    pixels = loss_pixels = 0
     for batch in make_loader(dataset, batch_size, start=0, count=count):
-        frames = prepare_batch(batch, device)["frames"][:, :seq_len]
+        batch = prepare_batch(batch, device)
+        frames = batch["frames"][:, :seq_len]
         prediction = model(frames)["prediction"]
         target = frames[:, 1:]
-        sums["val_loss"] += float(weighted_pixel_loss(prediction, frames, digit_weight)) * target.numel()
+        loss_target, keep = loss_targets(batch, seq_len, blackout_loss)
+        counted = target.numel() if keep is None else int(keep[:, 1:].sum()) * target[0, 0].numel()
+        loss = weighted_pixel_loss(prediction, frames if loss_target is None else loss_target, digit_weight, keep)
+        sums["val_loss"] += float(loss) * counted
+        loss_pixels += counted
         for name, guess in (("val", prediction[:, 1:]), ("copy", frames[:, :-1]), ("blank", blank_prediction(target))):
             difference = guess - target
             sums[f"{name}_l1"] += float(difference.abs().sum())
             sums[f"{name}_mse"] += float(difference.square().sum())
         pixels += target.numel()
     model.train(was_training)
-    return {name: value / pixels for name, value in sums.items()}
+    return {name: value / (loss_pixels if name == "val_loss" else pixels) for name, value in sums.items()}
 
 
 def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_data: Dataset,
@@ -131,7 +144,7 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
     def run_validation(step: int) -> dict[str, float]:
         """Validate, log the row, and return the metrics."""
         metrics = validate(model, val_data, val_count, settings.val_batch_size, settings.seq_len, device,
-                           settings.digit_weight)
+                           settings.digit_weight, settings.blackout_loss)
         if step > 0 and metrics["val_loss"] < best["val_loss"]:
             best.update(val_loss=metrics["val_loss"], step=step)
         val_log.write(step=step, **metrics, best_step=best["step"])
@@ -154,11 +167,13 @@ def train(run_dir: str | Path, model: torch.nn.Module, train_data: Dataset, val_
     last_saved = start
     for step in range(start, end):
         began = time.perf_counter()
-        frames = prepare_batch(next(iterator), device)["frames"][:, :settings.seq_len]
+        batch = prepare_batch(next(iterator), device)
+        frames = batch["frames"][:, :settings.seq_len]
+        target, keep = loss_targets(batch, settings.seq_len, settings.blackout_loss)
         lr = learning_rate(step, settings)
         for group in optimizer.param_groups:
             group["lr"] = lr
-        loss = training_loss(model, model(frames), frames, settings.digit_weight)
+        loss = training_loss(model, model(frames), frames, settings.digit_weight, target, keep)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), settings.grad_clip or math.inf)

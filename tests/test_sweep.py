@@ -16,8 +16,8 @@ from peekaboo.models.prednet import count_parameters
 from peekaboo.paths import PROJECT_ROOT
 from peekaboo.train.loop import TrainSettings, learning_rate
 from peekaboo.train.metrics import TRAIN_FIELDS, VAL_FIELDS
-from peekaboo.train.sweep import (FAILED, FIGURES, SEEDS, SWEEP, check_commands, find_run, next_action, run_status,
-                                  stage_commands)
+from peekaboo.train.sweep import (BLACKOUT, FAILED, FIGURES, REFERENCE, SEEDS, SWEEP, check_commands, find_run,
+                                  next_action, run_status, stage_commands)
 
 RUN = SWEEP[0]
 
@@ -162,6 +162,24 @@ def test_more_seeds_of_the_reference_model(tmp_path: Path) -> None:
         assert f"--config configs/train/sweep_prednet5l.yaml --seed {run.seed} " in stage_commands(run)["train"]
     statuses = [run_status(run, tmp_path) for run in SWEEP + SEEDS]
     assert next_action(statuses)[1] == stage_commands(SWEEP[0])["train"]
+
+
+def test_blackout_runs_change_only_the_mix_and_the_loss(tmp_path: Path) -> None:
+    """The runs of step 4.1 train the reference config, with 10% of blackouts in the training mix (the other
+    conditions in their v1 proportions) and the masked loss, seeds 0, 1, and 2 in their own folders."""
+    reference = load_config(PROJECT_ROOT / find_run(REFERENCE).config)
+    config = load_config(PROJECT_ROOT / BLACKOUT[0].config)
+    mix = config.pop("data_overrides")["conditions.train_mix"]
+    assert config.pop("name") == reference.pop("name").replace("sweep_", "blackout_") == "blackout_prednet5l"
+    assert config["loss"].pop("blackout") == "masked"
+    assert config == reference
+    v1 = load_config(PROJECT_ROOT / reference["data"])["conditions"]["train_mix"]
+    assert sum(mix.values()) == pytest.approx(1.0) and mix["blackout"] == pytest.approx(0.1)
+    assert all(mix[condition] == pytest.approx(0.9 * share) for condition, share in v1.items())
+    assert [run.seed for run in BLACKOUT] == [0, 1, 2] and find_run("blackout_prednet5l") is BLACKOUT[0]
+    for run in BLACKOUT:
+        assert run.run_dir(tmp_path) == tmp_path / "blackout_prednet5l" / f"seed{run.seed}"
+        assert "--config configs/train/blackout_prednet5l.yaml" in stage_commands(run)["train"]
 
 
 def test_check_commands_stay_in_their_own_folder() -> None:

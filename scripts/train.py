@@ -2,6 +2,10 @@
 
 The run goes to runs/<name>/seed<seed>/ (see peekaboo/train/loop.py for its files). A run folder that already exists
 is never replaced unless --overwrite is given, and --resume continues it from last.pt with the same settings.
+
+`data_overrides` in a training config (step 4.1) changes the data config for the training stream only, for example
+its condition mix: the readouts (probes, decoder, layers) and the evaluation keep the data config itself, saved as
+"data" in the run's config, so that every model is read out on the same streams.
 """
 
 import argparse
@@ -9,7 +13,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from peekaboo.config import apply_overrides, load_config
+from peekaboo.config import apply_overrides, apply_values, load_config
 from peekaboo.data.conditions import GeneratorSettings
 from peekaboo.data.dataset import OnTheFlyDataset
 from peekaboo.data.mnist_pool import build_digit_pool
@@ -80,13 +84,18 @@ def main() -> int:
     digits = data_config["digits"]
     pool = build_digit_pool("train", digits["box_size"], digits["ink_threshold"], digits["val_size"],
                             digits["holdout_seed"], download=False)
-    train_data = OnTheFlyDataset(pool, GeneratorSettings.from_config(data_config), render_settings, "train", seed)
+    train_generator = GeneratorSettings.from_config(apply_values(data_config, config.get("data_overrides") or {}))
+    unblacked = settings.blackout_loss == "unblacked"  # the targets are the frames drawn without the blackout
+    train_data = OnTheFlyDataset(pool, train_generator, render_settings, "train", seed, include_unblacked=unblacked)
     # the validation set is drawn with the training colors
-    val_data = StoredDataset(DATASETS_DIR / config["validation"]["data"], render_settings=render_settings)
+    val_data = StoredDataset(DATASETS_DIR / config["validation"]["data"], render_settings=render_settings,
+                             include_unblacked=unblacked)
     model = build_model(run_config["model"]).to(device)
     print(f"{config['name']} seed {seed}: {count_parameters(model):,} parameters on {describe_device(device)}, "
           f"{settings.steps} steps of {settings.batch_size} x {settings.seq_len} frames, digit pixels weighted "
-          f"x{settings.digit_weight:g}, validation on {min(settings.val_sequences or len(val_data), len(val_data))} "
+          f"x{settings.digit_weight:g}, training mix "
+          f"{', '.join(f'{c} {p:g}' for c, p in train_generator.train_mix.items())}, blackout loss "
+          f"{settings.blackout_loss}, validation on {min(settings.val_sequences or len(val_data), len(val_data))} "
           f"sequences of {config['validation']['data']} every {settings.val_every} steps")
     print(f"run folder: {run_dir}" + (" (resumed)" if args.resume else ""))
     train(run_dir, model, train_data, val_data, settings, run_config, device, resume=args.resume,

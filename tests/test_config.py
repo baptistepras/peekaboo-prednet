@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from peekaboo.config import apply_overrides, load_config, save_config
+from peekaboo.config import apply_overrides, apply_values, load_config, save_config
 
 EXAMPLE = {"data": {"seq_len": 40, "speeds": [2, 3, 4]}, "seed": 0, "name": "demo"}
 
@@ -31,6 +31,16 @@ def test_unknown_key_raises_when_strict() -> None:
         apply_overrides(EXAMPLE, ["data.seq_lenn=30"])
     result = apply_overrides(EXAMPLE, ["extra.value=1"], strict=False)
     assert result["extra"]["value"] == 1
+
+
+def test_values_replace_whole_entries() -> None:
+    """A mapping value replaces the whole entry, the input is not modified, and an unknown key raises when strict."""
+    result = apply_values(EXAMPLE, {"data": {"seq_len": 10}})
+    assert result["data"] == {"seq_len": 10} and EXAMPLE["data"]["speeds"] == [2, 3, 4]
+    result = apply_values(EXAMPLE, {"data.speeds": {"a": 1}})
+    assert result["data"]["speeds"] == {"a": 1} and result["data"]["seq_len"] == 40
+    with pytest.raises(KeyError):
+        apply_values(EXAMPLE, {"data.mix": {"a": 1}})
 
 
 def test_bad_extension_raises(tmp_path: Path) -> None:

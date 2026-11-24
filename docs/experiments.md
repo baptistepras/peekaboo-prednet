@@ -675,3 +675,21 @@ The lowest AUROC is on `vanish` BA - A for PredNet 5 layers and concat, on `earl
 - **One test set, run once.** Every analysis choice was fixed on `dev_v1`. The intervals cover the test sequences, and for PredNet 5 layers its seeds, not other data sets.
 
 **Decisions.** Phase 3 is complete. The README states the results with these limits.
+
+## Step 4.1: blackouts in training
+
+*Setup and criteria written before training. Results to come.*
+
+**Question.** In [step 3.6](#step-36-blackout-and-closed-loop), PredNet 5 layers loses the digit after one black frame in open loop. Its probe error on y over the blackout frames is 6.93 px [6.07, 7.56] (three seeds), worse than the last seen position. In closed loop, where it reads its own predictions, it keeps the digit at 0.73 px [0.67, 0.80], better than the Kalman filter (1.35 px). In v1, a blackout was never seen in training. Does PredNet learn to carry the digit through a blackout alone, when blackouts are part of its training?
+
+**Setup.**
+- **Training data.** The training mix gives 10% of the sequences to blackouts, and the other conditions keep their v1 proportions: control 27%, occlusion 54%, hidden bounce 9%. A blackout is drawn as in the blackout cells of the test sets: a control crossing whose most covered frame starts k black frames, with k drawn with the k weights (2 to 12, weights proportional to k). That gives about 8 black frames per blackout sequence, so about 2% of the predicted frames are black. The change is a training override of the mix (`data_overrides` in [configs/train/blackout_prednet5l.yaml](../configs/train/blackout_prednet5l.yaml)). The data config, the validation set, and the test sets are those of v1.
+- **Loss on the blackout frames: masked.** The predictions of the black frames are left out of the loss (`loss.blackout: masked`). The model is never asked to predict a black frame. The first frame after the blackout still rewards a model that kept the digit, and the loss stays self supervised. The two other options are coded and not used: the plain loss would ask the model to predict black, and the frames without the blackout as targets would tell it where the digit is during the blackout. Loci-Looped does the latter: it blacks out the input only, its loss always compares with the real next frame, and its blackouts fall on single frames, at random, at 10% of the frames rising to 45%, from frame 10 on, and only once its percept gate is on (`scripts/training.py`).
+- **Everything else as in v1.** PredNet 5 layers with the sweep config (15k steps, the learning rate divided by 10 at step 10000, digit weight 10, clipping at 1.0), seeds 0, 1, and 2. The best checkpoint is chosen on `val_v1`, which has no blackouts, as for v1. The probes, the decoder, and the layer readouts are fitted on the streams of the v1 mix, without blackouts, as for every v1 model. A difference therefore comes from the state, not from the readouts.
+- **Evaluation.** The same chain as v1: the gate D16, the readouts, the extraction pass and the closed loop passes on `test_v1`, then the five analyses with the v1 models and the new ones side by side. The blackout cells of `test_v1` (k in {2, 4, 8}) are now in the training distribution.
+
+**Criteria, fixed before training.** They are read on the open loop probe error on y over the blackout frames, three seeds pooled.
+- Above the Kalman filter (1.35 px): a break. PredNet does not learn to carry the digit through a blackout alone, and the case goes to the percept gate of the next phase.
+- At or below the v1 closed loop (0.73 px): PredNet learns it alone. Training does what the hand set closed loop did.
+- In between: partly learned.
+- Cost check, on the occlusion cells. The hidden probe stays at or below 0.80 px (the worst v1 seed), the digit is drawn again on time in at least 82% of the sequences (87% for v1), and the lowest surprise AUROC of the next frame MSE stays at or above 0.95 (0.98 for v1). If not, the blackout gain is paid elsewhere.

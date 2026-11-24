@@ -2,8 +2,9 @@
 
 The sweep trains every model with the same settings and seed (configs/train/sweep_*.yaml), one run at a time, then
 evaluates each one: the gate D16, the position probes, the amodal decoder, and the prediction figures. The seeds 1 and
-2 of PredNet 5 layers (step 3.7) follow the sweep runs, with the same stages. This script only
-reads the run folders; it launches nothing. Run it between two commands, or while a run is training.
+2 of PredNet 5 layers (step 3.7), then the three seeds of PredNet 5 layers trained with blackouts (step 4.1), follow
+the sweep runs, with the same stages. This script only reads the run folders; it launches nothing. Run it between two
+commands, or while a run is training.
 """
 
 import argparse
@@ -13,8 +14,8 @@ from pathlib import Path
 import pandas as pd
 
 from peekaboo.paths import RUNS_DIR
-from peekaboo.train.sweep import (HIDDEN, SEEDS, STAGES, SWEEP, RunStatus, check_commands, find_run, next_action,
-                                  relative, run_status, stage_commands)
+from peekaboo.train.sweep import (BLACKOUT, HIDDEN, SEEDS, STAGES, SWEEP, RunStatus, check_commands, find_run,
+                                  next_action, relative, run_status, stage_commands)
 
 
 def summary_row(status: RunStatus) -> dict[str, str]:
@@ -50,7 +51,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.check:
-        for run in SWEEP:
+        for run in SWEEP + BLACKOUT[:1]:
             print(f"# {run.label}\n{check_commands(run)}\n")
         return 0
     if args.commands:
@@ -59,7 +60,7 @@ def main() -> int:
             print(f"# {stage}\n{command}\n")
         return 0
 
-    statuses = [run_status(run, args.runs) for run in SWEEP + SEEDS]
+    statuses = [run_status(run, args.runs) for run in SWEEP + SEEDS + BLACKOUT]
     table = pd.DataFrame([summary_row(s) for s in statuses])
     print(f"training sweep (probe y error in px and decoder correlation on hidden frames, "
           f"{HIDDEN}; drop check: fall of the validation MSE over the 2000 steps before the learning rate drop)\n")
