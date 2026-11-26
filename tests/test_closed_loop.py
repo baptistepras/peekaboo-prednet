@@ -2,6 +2,7 @@
 loop, closed frames are read as the model's own predictions, the old extrapolate_from is a special case), the frames
 without the blackout, the closed loop pass, and the analysis on a fake table with known answers."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -15,8 +16,9 @@ from peekaboo.data.dataset import OnTheFlyDataset, make_loader
 from peekaboo.data.mnist_pool import DigitPool
 from peekaboo.data.render import RenderSettings
 from peekaboo.data.truth import STATE_NAMES
-from peekaboo.eval.closed_loop import add_loop_errors, closed_loop, plot_loop
-from peekaboo.eval.extract import LOOPS, cell_range, extract_frames, hidden_frames, loop_frames
+from peekaboo.eval.closed_loop import add_loop_errors, closed_loop, loop_runs, plot_loop
+from peekaboo.eval.extract import (LOOP_FORMAT, LOOPS, cell_range, extract_frames, hidden_frames,
+                                   loop_frames)
 from peekaboo.models import build_model
 from peekaboo.models.loop import closed_mask
 from peekaboo.paths import CONFIGS_DIR
@@ -179,6 +181,27 @@ def fake_loops() -> pd.DataFrame:
                 "open_mse_digit": np.where(closed, 0.02, 0.001), "closed_mse_digit": np.where(closed, 0.005, 0.001),
                 "kalman_y": y + 3.0, "last_seen_y": y + 4.0}))
     return pd.concat(parts, ignore_index=True)
+
+
+def test_loop_runs_of_a_model_set(tmp_path: Path) -> None:
+    """The complete passes of one mode are found for the models of the set only, and a pass with older columns is
+    refused."""
+    def write(key: str, seed: int, mode: str, version: int = LOOP_FORMAT) -> None:
+        folder = tmp_path / key / f"seed{seed}" / "eval" / f"loop_{mode}_dev_v1"
+        folder.mkdir(parents=True)
+        (folder / "info.json").write_text(json.dumps({"settings": {"format": version}, "complete": True}))
+
+    write("sweep_prednet5l", 0, "blackout")
+    write("blackout_prednet5l", 0, "blackout")
+    write("blackout_prednet5l", 2, "blackout")
+    write("blackout_prednet5l", 1, "occlusion")
+    found = loop_runs(tmp_path, "dev_v1", "blackout", "blackout")
+    assert [(run.key, run.seed) for run in found] == [("sweep_prednet5l", 0), ("blackout_prednet5l", 0),
+                                                      ("blackout_prednet5l", 2)]
+    assert [(run.key, run.seed) for run in loop_runs(tmp_path, "dev_v1", "blackout")] == [("sweep_prednet5l", 0)]
+    write("sweep_prednet5l", 1, "blackout", LOOP_FORMAT - 1)
+    with pytest.raises(ValueError):
+        loop_runs(tmp_path, "dev_v1", "blackout", "blackout")
 
 
 def test_analysis_with_several_seeds() -> None:

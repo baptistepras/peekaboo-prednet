@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 
 from peekaboo.eval.results import HEADLINE, headline, pick, seed_numbers
-from peekaboo.train.sweep import SWEEP
-from scripts.make_results import ANALYSES, EXAMPLES, commands
+from peekaboo.train.sweep import BLACKOUT, REFERENCE, SWEEP
+from scripts.make_results import ANALYSES, EXAMPLES, commands, seeded
 
 MODEL = SWEEP[0].label
 
@@ -50,6 +50,9 @@ def test_headline_reads_the_tables(tmp_path: Path) -> None:
     assert table.loc[MODEL, "surprise: lowest AUROC of the next frame MSE"] == "0.95 [0.94, 0.96] (early AB - B)"
     assert table.loc[MODEL, labels[1]] == "" and table.loc[MODEL, labels[-1]] == ""  # no such row, no such table
     assert table.loc[SWEEP[1].label, labels[0]] == ""
+    blackout = headline(tmp_path, "blackout").set_index("model")
+    assert list(blackout.index) == [MODEL, BLACKOUT[0].label, "Kalman"]
+    assert blackout.loc[MODEL, labels[0]] == "0.72 [0.64, 0.80]" and blackout.loc[BLACKOUT[0].label, labels[0]] == ""
 
 
 def test_pick_refuses_an_ambiguous_row() -> None:
@@ -94,3 +97,17 @@ def test_commands_cover_every_result(tmp_path: Path) -> None:
                for c in plan["examples"])
     for command in plan["sweep"] + plan["analyses"] + plan["examples"]:
         assert importlib.util.find_spec(command[0]) is not None
+
+
+def test_commands_of_the_blackout_set(tmp_path: Path) -> None:
+    """For step 4.1: no sweep comparison, every analysis on this set, the examples of both models in the folder of the
+    set, and the seeds of both models in the summary."""
+    plan = commands("test_v1", tmp_path, "blackout")
+    assert plan["sweep"] == []
+    assert all(c[c.index("--models") + 1] == "blackout" for c in plan["analyses"])
+    assert len(plan["examples"]) == 2 * len(EXAMPLES)
+    assert all(c[0] == "scripts.show_predictions" and str(tmp_path / "analysis" / "test_v1_blackout" / "examples")
+               in c[c.index("--out") + 1] for c in plan["examples"])
+    assert {c[c.index("--run") + 1] for c in plan["examples"]} == {
+        str(tmp_path / key / "seed0") for key in (REFERENCE, BLACKOUT[0].key)}
+    assert seeded("sweep") == [REFERENCE] and seeded("blackout") == [REFERENCE, BLACKOUT[0].key]

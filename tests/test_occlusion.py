@@ -12,7 +12,7 @@ import pytest
 from peekaboo.eval.extract import FRAMES_FORMAT
 from peekaboo.eval.occlusion import (curves, decay, emergence, emergence_rows, hidden_summary, plot_curves,
                                      plot_decay, plot_emergence, plot_speeds, timing)
-from peekaboo.eval.tables import add_errors, available_runs
+from peekaboo.eval.tables import add_errors, analysis_folder, available_runs
 
 ONSET, K, STEPS = 8, 4, 20       # hidden frames 8 to 11, reappearance at frame 12
 
@@ -161,8 +161,8 @@ def test_figures(table: pd.DataFrame, tmp_path: Path) -> None:
 
 
 def test_runs_found_on_a_set(tmp_path: Path) -> None:
-    """A complete pass of a sweep model is found with its seed, a failed run kept as a record is not, and a pass with
-    older columns is refused."""
+    """A complete pass of a model of the set is found with its seed, a failed run kept as a record is not, a model of
+    another set is not, and a pass with older columns is refused."""
     def write(key: str, seed: int, version: int) -> None:
         folder = tmp_path / key / f"seed{seed}" / "eval" / "frames_dev_v1"
         folder.mkdir(parents=True)
@@ -173,6 +173,20 @@ def test_runs_found_on_a_set(tmp_path: Path) -> None:
     write("sweep_prednet4l", 0, FRAMES_FORMAT)  # the failed seed
     runs = available_runs(tmp_path, "dev_v1")
     assert [(run.key, run.seed) for run in runs] == [("sweep_prednet5l", 0), ("sweep_prednet5l", 2)]
+    write("blackout_prednet5l", 1, FRAMES_FORMAT)
+    assert [(run.key, run.seed) for run in available_runs(tmp_path, "dev_v1")] == [("sweep_prednet5l", 0),
+                                                                                   ("sweep_prednet5l", 2)]
+    blackout = available_runs(tmp_path, "dev_v1", "blackout")
+    assert [(run.key, run.seed) for run in blackout] == [("sweep_prednet5l", 0), ("sweep_prednet5l", 2),
+                                                         ("blackout_prednet5l", 1)]
+    assert blackout[-1].label == "PredNet 5 layers, blackouts"
     write("sweep_convlstm", 0, FRAMES_FORMAT - 1)
     with pytest.raises(ValueError):
         available_runs(tmp_path, "dev_v1")
+    assert len(available_runs(tmp_path, "dev_v1", "blackout")) == 3  # the ConvLSTM is not in this set
+
+
+def test_analysis_folders(tmp_path: Path) -> None:
+    """The sweep keeps the Phase 3 folder of a set; another model set has its own."""
+    assert analysis_folder(tmp_path, "test_v1") == tmp_path / "analysis" / "test_v1"
+    assert analysis_folder(tmp_path, "test_v1", "blackout") == tmp_path / "analysis" / "test_v1_blackout"

@@ -1,8 +1,8 @@
-"""Inside the state (step 3.5): reads the extraction tables and the layer passes of every sweep model with both
-complete on a set (scripts/extract.py, with and without --layers), and the baselines of the set, and writes the
-tables and figures of peekaboo/eval/layers.py. Nothing runs a model.
+"""Inside the state (step 3.5): reads the extraction tables and the layer passes of every model of a model set (the
+sweep by default) with both complete on a set (scripts/extract.py, with and without --layers), and the baselines of the
+set, and writes the tables and figures of peekaboo/eval/layers.py. Nothing runs a model.
 
-Saved in runs/analysis/<set>/layers/:
+Saved in runs/analysis/<set>/layers/ (runs/analysis/<set>_blackout/layers/ with --models blackout):
 - readouts.csv: per cell condition, frames (hidden, visible before the onset), model, and readout (all the layers,
   all fitted on visible frames, every layer alone, every layer but one), the probe's error on y and the decoder's
   correlation and IoU with 95% bootstrap intervals, and Kalman; readouts_paired.csv: every readout minus all the
@@ -28,8 +28,9 @@ from peekaboo.eval.correction import HORIZON
 from peekaboo.eval.layers import (CELLS, K_SHOWN, inside, layer_runs, order, plot_belief, plot_errors, plot_layers,
                                   plot_visible, read_layers)
 from peekaboo.eval.surprise import KINDS
-from peekaboo.eval.tables import available_runs, baselines_folder
+from peekaboo.eval.tables import analysis_folder, available_runs, baselines_folder
 from peekaboo.paths import RUNS_DIR
+from peekaboo.train.sweep import MODEL_SETS
 
 
 def wide(rows: pd.DataFrame, value: str = "mean", digits: int = 2) -> str:
@@ -88,16 +89,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", default="dev_v1", help="a set with complete extractions (dev_v1 or test_v1)")
     parser.add_argument("--runs", type=Path, default=RUNS_DIR, help="folder of the runs")
+    parser.add_argument("--models", choices=MODEL_SETS, default="sweep",
+                        help="the model set: the sweep (Phase 3), or blackout (step 4.1: PredNet 5 layers and the "
+                             "same model trained with blackouts, in runs/analysis/<set>_blackout/)")
     parser.add_argument("--out", type=Path, default=None, help="output folder (default runs/analysis/<set>/layers)")
     args = parser.parse_args()
 
     started = time.perf_counter()
-    runs = layer_runs(available_runs(args.runs, args.data), args.data)
+    runs = layer_runs(available_runs(args.runs, args.data, args.models), args.data)
     baselines = baselines_folder(args.runs, args.data)
     if not runs or not (baselines / "info.json").exists():
-        print(f"no complete layer pass on {args.data}: python -m scripts.extract --status --layers --data {args.data}")
+        print(f"no complete layer pass on {args.data}: python -m scripts.extract --status --layers --data {args.data} "
+              f"--models {args.models}")
         return 1
-    out = args.out or args.runs / "analysis" / args.data / "layers"
+    out = args.out or analysis_folder(args.runs, args.data, args.models) / "layers"
     out.mkdir(parents=True, exist_ok=True)
     print(f"{args.data}: {', '.join(f'{run.label} (seed {run.seed})' for run in runs)}")
     table = read_layers(runs, args.data, baselines)

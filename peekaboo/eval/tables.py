@@ -1,10 +1,12 @@
 """The extraction tables of step 3.1 as the Phase 3 analyses read them: which runs have a complete pass on a set, their
 per frame rows joined with the baselines of the set, and the error of every position readout.
 
-A model is a run of the training sweep (peekaboo/train/sweep.py), with every seed that has a complete pass; the
-failed runs kept as records are left out. Rows hold `model` (the sweep label) and `seed`.
+A model is a model of one of the model sets (peekaboo/train/sweep.py MODEL_SETS: the training sweep for Phase 3, by
+default), with every seed that has a complete pass; the failed runs kept as records are left out. Rows hold `model`
+(the label of the model's first run) and `seed`.
 """
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from peekaboo.eval.extract import FRAMES_FORMAT, frame_columns, is_complete, pass_format, read_frames
-from peekaboo.train.sweep import FAILED, SWEEP
+from peekaboo.train.sweep import FAILED, MODEL_SETS, SweepRun
 
 KEYS = ["sequence", "t"]
 # position readouts: the y and x columns of each (None when it gives no y)
@@ -51,23 +53,36 @@ def baselines_folder(runs_dir: Path, data: str) -> Path:
     return runs_dir / "baselines" / data
 
 
-def available_runs(runs_dir: Path, data: str) -> list[ModelRun]:
-    """Every seed of every sweep model with a complete pass on the set, in the order of the sweep. A pass written
-    with older columns is refused: it is to be written again (scripts/extract.py --overwrite)."""
+def analysis_folder(runs_dir: Path, data: str, models: str = "sweep") -> Path:
+    """Where the analyses of a model set on a set are written: runs/analysis/<set>/ for the sweep, as in Phase 3, and
+    runs/analysis/<set>_<models>/ for another model set."""
+    return runs_dir / "analysis" / (data if models == "sweep" else f"{data}_{models}")
+
+
+def seed_folders(runs_dir: Path, models: str = "sweep") -> Iterator[tuple[SweepRun, int, Path]]:
+    """Every seed folder of every model of the set, in the order of the set, then of the seeds: the model, the seed,
+    and the folder. The failed runs kept as records are left out."""
     failed = {(run.key, run.seed) for run in FAILED}
-    runs = []
-    for run in SWEEP:
+    for run in MODEL_SETS[models]:
         seed_dirs = [p for p in (runs_dir / run.key).glob("seed*") if p.name[4:].isdigit()]
         for seed_dir in sorted(seed_dirs, key=lambda p: int(p.name[4:])):
-            seed = int(seed_dir.name[4:])
-            folder = frames_folder(seed_dir, data)
-            if (run.key, seed) in failed or not is_complete(folder):
-                continue
-            if pass_format(folder) != FRAMES_FORMAT:
-                raise ValueError(f"{folder} has the columns of format {pass_format(folder)}, not {FRAMES_FORMAT}: "
-                                 f"write it again with python -m scripts.extract --run {seed_dir} --data {data} "
-                                 f"--overwrite")
-            runs.append(ModelRun(run.key, run.label, seed, folder))
+            if (run.key, int(seed_dir.name[4:])) not in failed:
+                yield run, int(seed_dir.name[4:]), seed_dir
+
+
+def available_runs(runs_dir: Path, data: str, models: str = "sweep") -> list[ModelRun]:
+    """Every seed of every model of the set with a complete pass on the set, in the order of the set. A pass written
+    with older columns is refused: it is to be written again (scripts/extract.py --overwrite)."""
+    runs = []
+    for run, seed, seed_dir in seed_folders(runs_dir, models):
+        folder = frames_folder(seed_dir, data)
+        if not is_complete(folder):
+            continue
+        if pass_format(folder) != FRAMES_FORMAT:
+            raise ValueError(f"{folder} has the columns of format {pass_format(folder)}, not {FRAMES_FORMAT}: "
+                             f"write it again with python -m scripts.extract --run {seed_dir} --data {data} "
+                             f"--overwrite")
+        runs.append(ModelRun(run.key, run.label, seed, folder))
     return runs
 
 

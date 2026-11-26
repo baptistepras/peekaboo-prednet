@@ -1,8 +1,8 @@
-"""Blackout and closed loop (step 3.6): reads the closed loop passes of every sweep model on the blackout and the
-occlusion cells of a set (scripts/extract.py --closed-loop), and the baselines of the set, and writes the tables and
-figures of peekaboo/eval/closed_loop.py. Nothing runs a model.
+"""Blackout and closed loop (step 3.6): reads the closed loop passes of every model of a model set (the sweep by
+default) on the blackout and the occlusion cells of a set (scripts/extract.py --closed-loop), and the baselines of the
+set, and writes the tables and figures of peekaboo/eval/closed_loop.py. Nothing runs a model.
 
-Saved in runs/analysis/<set>/closed_loop/:
+Saved in runs/analysis/<set>/closed_loop/ (runs/analysis/<set>_blackout/closed_loop/ with --models blackout):
 - summary.csv: per mode (blackout, occlusion), frames (the blackout or hidden frames, and the reappearance frame and
   the next two), k (all and each), model, and loop (open, closed), the probe's error on y, the decoder's correlation,
   the drawn digit's error on y and the share of frames where it is drawn (not behind the bar of the occlusion cells,
@@ -25,8 +25,9 @@ import pandas as pd
 from peekaboo.eval.closed_loop import (FRAMES, K_SHOWN, MEASURES, closed_loop, loop_runs, measures_of, plot_loop,
                                        read_loops)
 from peekaboo.eval.extract import LOOP_MODES, LOOPS
-from peekaboo.eval.tables import baselines_folder
+from peekaboo.eval.tables import analysis_folder, baselines_folder
 from peekaboo.paths import RUNS_DIR
+from peekaboo.train.sweep import MODEL_SETS
 
 
 def report(tables: dict[str, pd.DataFrame]) -> None:
@@ -72,19 +73,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", default="dev_v1", help="a set with complete closed loop passes (dev_v1 or test_v1)")
     parser.add_argument("--runs", type=Path, default=RUNS_DIR, help="folder of the runs")
+    parser.add_argument("--models", choices=MODEL_SETS, default="sweep",
+                        help="the model set: the sweep (Phase 3), or blackout (step 4.1: PredNet 5 layers and the "
+                             "same model trained with blackouts, in runs/analysis/<set>_blackout/)")
     parser.add_argument("--out", type=Path, default=None,
                         help="output folder (default runs/analysis/<set>/closed_loop)")
     args = parser.parse_args()
 
     started = time.perf_counter()
-    runs = {mode: loop_runs(args.runs, args.data, mode) for mode in LOOP_MODES}
+    runs = {mode: loop_runs(args.runs, args.data, mode, args.models) for mode in LOOP_MODES}
     runs = {mode: own for mode, own in runs.items() if own}
     baselines = baselines_folder(args.runs, args.data)
     if not runs or not (baselines / "info.json").exists():
         print(f"no complete closed loop pass on {args.data}: python -m scripts.extract --status --closed-loop "
-              f"blackout --data {args.data}")
+              f"blackout --data {args.data} --models {args.models}")
         return 1
-    out = args.out or args.runs / "analysis" / args.data / "closed_loop"
+    out = args.out or analysis_folder(args.runs, args.data, args.models) / "closed_loop"
     out.mkdir(parents=True, exist_ok=True)
     for mode, own in runs.items():
         print(f"{args.data}, {mode}: {', '.join(f'{run.label} (seed {run.seed})' for run in own)}")

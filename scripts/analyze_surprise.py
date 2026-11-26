@@ -1,8 +1,8 @@
-"""Surprise (RQ3, step 3.4): reads the extraction tables of every sweep model with a complete pass on a set
-(scripts/extract.py) and the baselines of the set, and writes the tables and figures of peekaboo/eval/surprise.py.
-Nothing runs a model.
+"""Surprise (RQ3, step 3.4): reads the extraction tables of every model of a model set (the sweep by default) with a
+complete pass on a set (scripts/extract.py) and the baselines of the set, and writes the tables and figures of
+peekaboo/eval/surprise.py. Nothing runs a model.
 
-Saved in runs/analysis/<set>/surprise/:
+Saved in runs/analysis/<set>/surprise/ (runs/analysis/<set>_blackout/surprise/ with --models blackout):
 - index.csv: per surprise kind, pair (AB - B, BA - A), scope (all, per k and speed for the MSE), signal, and line,
   the surprise index over the window with its 95% bootstrap interval, the AUROC with its paired bootstrap interval,
   and the share of tuples where the impossible member is higher;
@@ -22,8 +22,9 @@ import pandas as pd
 
 from peekaboo.eval.surprise import (COLUMNS, CONDITIONS, CONTRASTS, KINDS, MAIN, PAIRS, ROWS, SIGNALS, WINDOW,
                                     plot_auroc, plot_curves, plot_layers, surprise)
-from peekaboo.eval.tables import available_runs, baselines_folder, read_runs
+from peekaboo.eval.tables import analysis_folder, available_runs, baselines_folder, read_runs
 from peekaboo.paths import RUNS_DIR
+from peekaboo.train.sweep import MODEL_SETS
 
 
 def index_text(row: pd.Series) -> str:
@@ -94,16 +95,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", default="dev_v1", help="a set with complete extractions (dev_v1 or test_v1)")
     parser.add_argument("--runs", type=Path, default=RUNS_DIR, help="folder of the runs")
+    parser.add_argument("--models", choices=MODEL_SETS, default="sweep",
+                        help="the model set: the sweep (Phase 3), or blackout (step 4.1: PredNet 5 layers and the "
+                             "same model trained with blackouts, in runs/analysis/<set>_blackout/)")
     parser.add_argument("--out", type=Path, default=None, help="output folder (default runs/analysis/<set>/surprise)")
     args = parser.parse_args()
 
     started = time.perf_counter()
-    runs = available_runs(args.runs, args.data)
+    runs = available_runs(args.runs, args.data, args.models)
     baselines = baselines_folder(args.runs, args.data)
     if not runs or not (baselines / "info.json").exists():
-        print(f"no complete extraction on {args.data}: python -m scripts.extract --status --data {args.data}")
+        print(f"no complete extraction on {args.data}: python -m scripts.extract --status --data {args.data} "
+              f"--models {args.models}")
         return 1
-    out = args.out or args.runs / "analysis" / args.data / "surprise"
+    out = args.out or analysis_folder(args.runs, args.data, args.models) / "surprise"
     out.mkdir(parents=True, exist_ok=True)
     print(f"{args.data}: {', '.join(f'{run.label} (seed {run.seed})' for run in runs)}")
     table = read_runs(runs, baselines, list(CONDITIONS), COLUMNS, rows=ROWS)

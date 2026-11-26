@@ -73,6 +73,17 @@ REFERENCE = "sweep_prednet5l"  # the reference model (README, Phase 3): best rea
 # and evaluated through the same stages as the sweep runs
 BLACKOUT = tuple(SweepRun("blackout_prednet5l", "PredNet 5 layers, blackouts" + (f", seed {seed}" if seed else ""),
                           7.5, 20, seed=seed) for seed in (0, 1, 2))
+RUNS = SWEEP + SEEDS + BLACKOUT  # every run trained and evaluated, seed by seed
+# the model sets of the analyses, each written in its own folder (peekaboo/eval/tables.py analysis_folder): Phase 3
+# compares the sweep models; step 4.1 compares the reference model with the same model trained with blackouts. Each
+# model is named by its first run; the analyses find every seed of it on their own, and the paired differences are
+# taken against the reference model in both sets
+MODEL_SETS = {"sweep": SWEEP, "blackout": (SWEEP[0], BLACKOUT[0])}
+
+
+def model_runs(models: str) -> list[SweepRun]:
+    """Every run of the models of a set, seed by seed, model after model."""
+    return [run for model in MODEL_SETS[models] for run in RUNS if run.key == model.key]
 
 
 def find_run(key: str) -> SweepRun:

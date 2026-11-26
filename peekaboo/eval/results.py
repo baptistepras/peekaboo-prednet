@@ -1,11 +1,13 @@
 """The results of Phase 3 in one place (step 3.8), as scripts/make_results.py writes them.
 
-- headline(folder): the main number of every research question for every model, read from the tables that the
-  analyses wrote in runs/analysis/<set>/ (nothing is recomputed), with the trackers where they apply.
-- seed_table(runs_dir, data): every seed of the reference model, read from its runs: training (best step, validation
-  MSE), the gate D16, and on the set, the probe and the decoder on the hidden frames of the occlusion cells and the
-  probe on the blackout frames in open and closed loop. These are plain means over sequences, one seed at a time,
-  computed as the analyses compute them; the analyses give the same numbers over the seeds together.
+- headline(folder, models): the main number of every research question for every model of a model set, read from
+  the tables that the analyses wrote in runs/analysis/<set>/ (or runs/analysis/<set>_<models>/; nothing is
+  recomputed), with the trackers where they apply.
+- seed_table(runs_dir, data, key): every seed of a model (the reference model by default), read from its runs:
+  training (best step, validation MSE), the gate D16, and on the set, the probe and the decoder on the hidden frames
+  of the occlusion cells and the probe on the blackout frames in open and closed loop. These are plain means over
+  sequences, one seed at a time, computed as the analyses compute them; the analyses give the same numbers over the
+  seeds together.
 """
 
 import json
@@ -18,7 +20,7 @@ import pandas as pd
 from peekaboo.eval.extract import is_complete, read_frames
 from peekaboo.eval.occlusion import event_rows, hidden
 from peekaboo.eval.tables import frames_folder, loop_folder, per_sequence
-from peekaboo.train.sweep import DATA, FAILED, REFERENCE, SWEEP, find_run
+from peekaboo.train.sweep import DATA, FAILED, MODEL_SETS, REFERENCE, find_run
 
 
 @dataclass(frozen=True)
@@ -96,15 +98,15 @@ def lowest_auroc(table: pd.DataFrame, who: str) -> str:
     return f"{row['auroc']:.2f} [{row['auroc_low']:.2f}, {row['auroc_high']:.2f}] ({row['event']} {row['pair']})"
 
 
-def headline(folder: Path) -> pd.DataFrame:
-    """One row per model, in the order of the sweep, then the trackers; one column per headline number. A table the
+def headline(folder: Path, models: str = "sweep") -> pd.DataFrame:
+    """One row per model of the set, in its order, then the trackers; one column per headline number. A table the
     analyses have not written yet leaves its column empty."""
     tables = {}
     for name in {number.table for number in HEADLINE} | {SURPRISE[0]}:
         path = folder / name
         tables[name] = pd.read_csv(path) if path.exists() else None
     rows = []
-    for who in [run.label for run in SWEEP] + list(REFERENCES):
+    for who in [run.label for run in MODEL_SETS[models]] + list(REFERENCES):
         row = {"model": who}
         for number in HEADLINE:
             table = tables[number.table]
@@ -147,7 +149,8 @@ def training_numbers(run_dir: Path) -> dict[str, float]:
 
 
 def seed_table(runs_dir: Path, data: str, key: str = REFERENCE) -> pd.DataFrame:
-    """One row per seed of a sweep model with a complete pass on the set (failed runs left out)."""
+    """One row per seed of a model (a sweep model, or the model of step 4.1) with a complete pass on the set (failed
+    runs left out)."""
     run = find_run(key)
     failed = {(r.key, r.seed) for r in FAILED}
     rows = []

@@ -1,8 +1,8 @@
-"""Tracking through occlusion (RQ1, step 3.2): reads the extraction tables of every sweep model with a complete pass on
-a set (scripts/extract.py) and the baselines of the set, and writes the tables and figures of
-peekaboo/eval/occlusion.py. Nothing runs a model.
+"""Tracking through occlusion (RQ1, step 3.2): reads the extraction tables of every model of a model set (the sweep by
+default) with a complete pass on a set (scripts/extract.py) and the baselines of the set, and writes the tables and
+figures of peekaboo/eval/occlusion.py. Nothing runs a model.
 
-Saved in runs/analysis/<set>/occlusion/:
+Saved in runs/analysis/<set>/occlusion/ (runs/analysis/<set>_blackout/occlusion/ with --models blackout):
 - curves.csv and curves_speed.csv: every readout against j, the frames since the onset, per k (and speed);
 - hidden.csv and hidden_paired.csv: the readouts on the hidden frames with 95% bootstrap intervals, and the paired
   differences against the random initialization control, the trackers and templates, and the reference model;
@@ -23,9 +23,9 @@ import pandas as pd
 
 from peekaboo.eval.occlusion import (COLUMNS, CONDITIONS, curves, decay, emergence, hidden_summary, plot_curves,
                                      plot_decay, plot_emergence, plot_speeds, timing)
-from peekaboo.eval.tables import available_runs, baselines_folder, read_runs
+from peekaboo.eval.tables import analysis_folder, available_runs, baselines_folder, read_runs
 from peekaboo.paths import RUNS_DIR
-from peekaboo.train.sweep import REFERENCE, find_run
+from peekaboo.train.sweep import MODEL_SETS, REFERENCE, find_run
 
 
 def interval(row: pd.Series, digits: int = 2) -> str:
@@ -83,16 +83,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", default="dev_v1", help="a set with complete extractions (dev_v1 or test_v1)")
     parser.add_argument("--runs", type=Path, default=RUNS_DIR, help="folder of the runs")
+    parser.add_argument("--models", choices=MODEL_SETS, default="sweep",
+                        help="the model set: the sweep (Phase 3), or blackout (step 4.1: PredNet 5 layers and the "
+                             "same model trained with blackouts, in runs/analysis/<set>_blackout/)")
     parser.add_argument("--out", type=Path, default=None, help="output folder (default runs/analysis/<set>/occlusion)")
     args = parser.parse_args()
 
     started = time.perf_counter()
-    runs = available_runs(args.runs, args.data)
+    runs = available_runs(args.runs, args.data, args.models)
     baselines = baselines_folder(args.runs, args.data)
     if not runs or not (baselines / "info.json").exists():
-        print(f"no complete extraction on {args.data}: python -m scripts.extract --status --data {args.data}")
+        print(f"no complete extraction on {args.data}: python -m scripts.extract --status --data {args.data} "
+              f"--models {args.models}")
         return 1
-    out = args.out or args.runs / "analysis" / args.data / "occlusion"
+    out = args.out or analysis_folder(args.runs, args.data, args.models) / "occlusion"
     out.mkdir(parents=True, exist_ok=True)
     print(f"{args.data}: {', '.join(f'{run.label} (seed {run.seed})' for run in runs)}")
     table = read_runs(runs, baselines, list(CONDITIONS), COLUMNS, roles=["none"])

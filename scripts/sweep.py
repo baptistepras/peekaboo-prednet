@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 
 from peekaboo.paths import RUNS_DIR
-from peekaboo.train.sweep import (BLACKOUT, HIDDEN, SEEDS, STAGES, SWEEP, RunStatus, check_commands, find_run,
+from peekaboo.train.sweep import (BLACKOUT, HIDDEN, RUNS, STAGES, SWEEP, RunStatus, check_commands, find_run,
                                   next_action, relative, run_status, stage_commands)
 
 
@@ -60,7 +60,7 @@ def main() -> int:
             print(f"# {stage}\n{command}\n")
         return 0
 
-    statuses = [run_status(run, args.runs) for run in SWEEP + SEEDS + BLACKOUT]
+    statuses = [run_status(run, args.runs) for run in RUNS]
     table = pd.DataFrame([summary_row(s) for s in statuses])
     print(f"training sweep (probe y error in px and decoder correlation on hidden frames, "
           f"{HIDDEN}; drop check: fall of the validation MSE over the 2000 steps before the learning rate drop)\n")

@@ -4,7 +4,8 @@ With --run: the next frame scores of the model and of both baselines, what its p
 probe and the amodal decoder of the run (and of its random initialization control), and for PredNet the activity of
 its error units, in <run>/eval/frames_<set>/. Needs the run's probes and decoders (scripts/fit_probes.py and
 scripts/fit_decoder.py). With --baselines: the programmed trackers and templates, once per set, in
-runs/baselines/<set>/. With --status: what is extracted for the sweep models on a set, and the next command.
+runs/baselines/<set>/. With --status: what is extracted on a set for every seed of the sweep models (or with
+--models blackout, of the models of step 4.1), and the next command.
 
 The rows are written by chunks of sequences; a stopped pass started again with the same command continues at the
 first missing chunk.
@@ -40,17 +41,18 @@ from peekaboo.probes.amodal import AmodalDecoder
 from peekaboo.probes.layers import has_readouts, load_readouts
 from peekaboo.probes.position import PositionProbe
 from peekaboo.train.checkpoint import find_checkpoint, load_model
-from peekaboo.train.sweep import MPS, SWEEP
+from peekaboo.train.sweep import MODEL_SETS, MPS, model_runs
 
 
-def status(runs_dir: Path, data: str, count: int, chunk: int, layers: bool, mode: str | None = None) -> int:
-    """Print what is extracted on a set for the baselines and every sweep model (or, with `layers`, the layer passes
-    of every model, or with `mode`, their closed loop passes on those cells), and the next command. A pass written
-    with an older version of the columns is to be written again with --overwrite."""
+def status(runs_dir: Path, data: str, count: int, chunk: int, layers: bool, mode: str | None = None,
+           models: str = "sweep") -> int:
+    """Print what is extracted on a set for the baselines and every seed of the models of a model set (or, with
+    `layers`, their layer passes, or with `mode`, their closed loop passes on those cells), and the next command. A
+    pass written with an older version of the columns is to be written again with --overwrite."""
     total = -(-count // chunk)
     jobs = [] if layers or mode else [("baselines", baselines_folder(runs_dir, data), BASELINES_FORMAT,
                                        f"python -m scripts.extract --baselines --data {data}")]
-    for run in SWEEP:
+    for run in model_runs(models):
         run_dir, name = run.run_dir(runs_dir), f"{run.key}/seed{run.seed}"
         command = f"{MPS} python -m scripts.extract --run runs/{name} --data {data}"
         if mode:
@@ -87,6 +89,8 @@ def main() -> int:
     target.add_argument("--run", type=Path, help="run folder, for example runs/sweep_prednet5l/seed0")
     target.add_argument("--baselines", action="store_true", help="extract the programmed baselines of the set")
     target.add_argument("--status", action="store_true", help="what is extracted on the set, and the next command")
+    parser.add_argument("--models", choices=MODEL_SETS, default="sweep",
+                        help="with --status: the model set whose seeds are listed (sweep, or blackout for step 4.1)")
     parser.add_argument("--data", default="dev_v1", help="a set name in data/datasets/ or a folder")
     parser.add_argument("--n", type=int, default=None, help="first sequences of the set (default: all)")
     parser.add_argument("--chunk", type=int, default=400, help="sequences per saved chunk")
@@ -111,7 +115,7 @@ def main() -> int:
     first, size = cell_range(probe_set, args.closed_loop) if args.closed_loop else (0, len(probe_set))
     count = min(args.n or size, size)
     if args.status:
-        return status(args.runs, data_dir.name, count, args.chunk, args.layers, args.closed_loop)
+        return status(args.runs, data_dir.name, count, args.chunk, args.layers, args.closed_loop, args.models)
     if args.closed_loop and (args.layers or args.baselines):
         print("--closed-loop goes with --run alone")
         return 1

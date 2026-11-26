@@ -27,7 +27,7 @@ from matplotlib.figure import Figure
 from peekaboo.eval.extract import MIN_INK
 from peekaboo.eval.stats import bootstrap, paired_difference
 from peekaboo.eval.tables import per_sequence, reference_rows
-from peekaboo.train.sweep import SWEEP
+from peekaboo.train.sweep import MODEL_SETS
 
 CONDITIONS = ("occlusion", "hidden_bounce")
 BEFORE, AFTER = 3, 3       # frames shown before the onset and after the last hidden frame
@@ -332,8 +332,9 @@ def draw_line(ax, curve: pd.DataFrame, x: str, who: str, kind: str, color: str, 
 
 
 def model_colors(table: pd.DataFrame) -> dict[str, str]:
-    """A color per model, the same in every figure: the sweep models in the order of the sweep, then any other."""
-    order = [run.label for run in SWEEP]
+    """A color per model, the same in every figure of every model set: the models of the sets in their order (the
+    sweep, then the models added by Phase 4), then any other."""
+    order = list(dict.fromkeys(run.label for models in MODEL_SETS.values() for run in models))
     order += [model for model in table.loc[table["kind"] == "model", "who"].unique() if model not in order]
     return {model: f"C{i}" for i, model in enumerate(order)}
 

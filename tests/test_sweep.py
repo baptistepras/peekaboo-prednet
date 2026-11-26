@@ -16,8 +16,8 @@ from peekaboo.models.prednet import count_parameters
 from peekaboo.paths import PROJECT_ROOT
 from peekaboo.train.loop import TrainSettings, learning_rate
 from peekaboo.train.metrics import TRAIN_FIELDS, VAL_FIELDS
-from peekaboo.train.sweep import (BLACKOUT, FAILED, FIGURES, REFERENCE, SEEDS, SWEEP, check_commands, find_run,
-                                  next_action, run_status, stage_commands)
+from peekaboo.train.sweep import (BLACKOUT, FAILED, FIGURES, MODEL_SETS, REFERENCE, RUNS, SEEDS, SWEEP, check_commands,
+                                  find_run, model_runs, next_action, run_status, stage_commands)
 
 RUN = SWEEP[0]
 
@@ -180,6 +180,17 @@ def test_blackout_runs_change_only_the_mix_and_the_loss(tmp_path: Path) -> None:
     for run in BLACKOUT:
         assert run.run_dir(tmp_path) == tmp_path / "blackout_prednet5l" / f"seed{run.seed}"
         assert "--config configs/train/blackout_prednet5l.yaml" in stage_commands(run)["train"]
+
+
+def test_model_sets() -> None:
+    """The sweep set is the sweep; the step 4.1 set is the reference model, then the model trained with blackouts;
+    the runs of a set are every seed of each model, model after model."""
+    assert MODEL_SETS["sweep"] == SWEEP and SWEEP[0].key == REFERENCE
+    assert [run.key for run in MODEL_SETS["blackout"]] == [REFERENCE, "blackout_prednet5l"]
+    assert [(run.key, run.seed) for run in model_runs("blackout")] == [
+        (key, seed) for key in (REFERENCE, "blackout_prednet5l") for seed in (0, 1, 2)]
+    assert model_runs("sweep")[:3] == [SWEEP[0], *SEEDS] and len(model_runs("sweep")) == len(SWEEP) + len(SEEDS)
+    assert len(set(RUNS)) == len(RUNS) and not set(FAILED) & set(RUNS)
 
 
 def test_check_commands_stay_in_their_own_folder() -> None:

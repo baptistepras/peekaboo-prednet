@@ -23,8 +23,7 @@ from matplotlib.figure import Figure
 from peekaboo.eval.extract import LOOP_FORMAT, LOOP_MODES, LOOPS, is_complete, pass_format, read_frames
 from peekaboo.eval.occlusion import BEFORE, EMERGING, group_mean_se, interval, model_colors, scopes
 from peekaboo.eval.stats import bootstrap, paired_difference
-from peekaboo.eval.tables import KEYS, ModelRun, loop_folder, per_sequence, reference_rows
-from peekaboo.train.sweep import FAILED, SWEEP
+from peekaboo.eval.tables import KEYS, ModelRun, loop_folder, per_sequence, reference_rows, seed_folders
 
 K_SHOWN = 8  # the k of the curves in the figures (both cell conditions have it)
 AFTER = 4    # frames shown after the last blackout or hidden frame
@@ -51,23 +50,19 @@ def measures_of(mode: str, frames: str) -> tuple[str, ...]:
     return FRAMES[frames]
 
 
-def loop_runs(runs_dir: Path, data: str, mode: str) -> list[ModelRun]:
-    """Every seed of every sweep model with a complete closed loop pass on the cells of `mode` of the set; a pass with
-    older columns is refused."""
-    failed = {(run.key, run.seed) for run in FAILED}
+def loop_runs(runs_dir: Path, data: str, mode: str, models: str = "sweep") -> list[ModelRun]:
+    """Every seed of every model of the set (peekaboo/train/sweep.py MODEL_SETS) with a complete closed loop pass on
+    the cells of `mode` of the set; a pass with older columns is refused."""
     runs = []
-    for run in SWEEP:
-        seed_dirs = [p for p in (runs_dir / run.key).glob("seed*") if p.name[4:].isdigit()]
-        for seed_dir in sorted(seed_dirs, key=lambda p: int(p.name[4:])):
-            seed = int(seed_dir.name[4:])
-            folder = loop_folder(seed_dir, data, mode)
-            if (run.key, seed) in failed or not is_complete(folder):
-                continue
-            if pass_format(folder) != LOOP_FORMAT:
-                raise ValueError(f"{folder} has the columns of format {pass_format(folder)}, not {LOOP_FORMAT}: write "
-                                 f"it again with python -m scripts.extract --run {seed_dir} --data {data} "
-                                 f"--closed-loop {mode} --overwrite")
-            runs.append(ModelRun(run.key, run.label, seed, folder))
+    for run, seed, seed_dir in seed_folders(runs_dir, models):
+        folder = loop_folder(seed_dir, data, mode)
+        if not is_complete(folder):
+            continue
+        if pass_format(folder) != LOOP_FORMAT:
+            raise ValueError(f"{folder} has the columns of format {pass_format(folder)}, not {LOOP_FORMAT}: write "
+                             f"it again with python -m scripts.extract --run {seed_dir} --data {data} "
+                             f"--closed-loop {mode} --overwrite")
+        runs.append(ModelRun(run.key, run.label, seed, folder))
     return runs
 
 

@@ -1,8 +1,8 @@
-"""Correction after the reappearance (RQ2, step 3.3): reads the extraction tables of every sweep model with a complete
-pass on a set (scripts/extract.py) and the baselines of the set, and writes the tables and figures of
-peekaboo/eval/correction.py. Nothing runs a model.
+"""Correction after the reappearance (RQ2, step 3.3): reads the extraction tables of every model of a model set (the
+sweep by default) with a complete pass on a set (scripts/extract.py) and the baselines of the set, and writes the tables
+and figures of peekaboo/eval/correction.py. Nothing runs a model.
 
-Saved in runs/analysis/<set>/correction/:
+Saved in runs/analysis/<set>/correction/ (runs/analysis/<set>_blackout/correction/ with --models blackout):
 - taus.csv: the threshold of every model and reference for each readout;
 - curves.csv: every readout against j, the frames since the reappearance, per event and role;
 - latency.csv: per event, role, k and speed, readout, and line, the shares found, censored, and short, and the
@@ -23,9 +23,9 @@ import pandas as pd
 
 from peekaboo.eval.correction import (COLUMNS, CONDITIONS, HORIZON, M, PANELS, ROWS, SURPRISING, correction,
                                       latency_readouts, plot_curves, plot_latency)
-from peekaboo.eval.tables import available_runs, baselines_folder, read_runs
+from peekaboo.eval.tables import analysis_folder, available_runs, baselines_folder, read_runs
 from peekaboo.paths import RUNS_DIR
-from peekaboo.train.sweep import REFERENCE, find_run
+from peekaboo.train.sweep import MODEL_SETS, REFERENCE, find_run
 
 
 def interval(row: pd.Series, prefix: str = "", digits: int = 2) -> str:
@@ -83,16 +83,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", default="dev_v1", help="a set with complete extractions (dev_v1 or test_v1)")
     parser.add_argument("--runs", type=Path, default=RUNS_DIR, help="folder of the runs")
+    parser.add_argument("--models", choices=MODEL_SETS, default="sweep",
+                        help="the model set: the sweep (Phase 3), or blackout (step 4.1: PredNet 5 layers and the "
+                             "same model trained with blackouts, in runs/analysis/<set>_blackout/)")
     parser.add_argument("--out", type=Path, default=None, help="output folder (default runs/analysis/<set>/correction)")
     args = parser.parse_args()
 
     started = time.perf_counter()
-    runs = available_runs(args.runs, args.data)
+    runs = available_runs(args.runs, args.data, args.models)
     baselines = baselines_folder(args.runs, args.data)
     if not runs or not (baselines / "info.json").exists():
-        print(f"no complete extraction on {args.data}: python -m scripts.extract --status --data {args.data}")
+        print(f"no complete extraction on {args.data}: python -m scripts.extract --status --data {args.data} "
+              f"--models {args.models}")
         return 1
-    out = args.out or args.runs / "analysis" / args.data / "correction"
+    out = args.out or analysis_folder(args.runs, args.data, args.models) / "correction"
     out.mkdir(parents=True, exist_ok=True)
     print(f"{args.data}: {', '.join(f'{run.label} (seed {run.seed})' for run in runs)}")
     table = read_runs(runs, baselines, list(CONDITIONS), COLUMNS, rows=ROWS)
