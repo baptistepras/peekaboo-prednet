@@ -1,0 +1,10 @@
+readout,who,kind,quantile,tau,n
+probe,PredNet 5 layers,model,2.734302568435669,3.0,195783
+probe,"PredNet 5 layers, blackouts",model,2.553787136077881,3.0,195783
+probe,Kalman,reference,1.7662211656570435,3.0,64575
+probe,Kalman with walls,reference,0.0006810944178141654,3.0,64575
+readout,PredNet 5 layers,model,0.18416869640350342,3.0,195780
+readout,"PredNet 5 layers, blackouts",model,0.18844227492809296,3.0,195779
+readout,copy,reference,4.472132682800293,4.472132682800293,57261
+digit_mse,PredNet 5 layers,model,0.0016076525207608943,0.0016076525207608943,195783
+digit_mse,"PredNet 5 layers, blackouts",model,0.0017450123559683572,0.0017450123559683572,195783

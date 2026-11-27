@@ -678,7 +678,7 @@ The lowest AUROC is on `vanish` BA - A for PredNet 5 layers and concat, on `earl
 
 ## Step 4.1: blackouts in training
 
-*Setup and criteria written before training. Results to come.*
+*Setup and criteria written and committed before training (1b7c7dd); results added once the three seeds were run on `test_v1`.*
 
 **Question.** In [step 3.6](#step-36-blackout-and-closed-loop), PredNet 5 layers loses the digit after one black frame in open loop. Its probe error on y over the blackout frames is 6.93 px [6.07, 7.56] (three seeds), worse than the last seen position. In closed loop, where it reads its own predictions, it keeps the digit at 0.73 px [0.67, 0.80], better than the Kalman filter (1.35 px). In v1, a blackout was never seen in training. Does PredNet learn to carry the digit through a blackout alone, when blackouts are part of its training?
 
@@ -693,3 +693,50 @@ The lowest AUROC is on `vanish` BA - A for PredNet 5 layers and concat, on `earl
 - At or below the v1 closed loop (0.73 px): PredNet learns it alone. Training does what the hand set closed loop did.
 - In between: partly learned.
 - Cost check, on the occlusion cells. The hidden probe stays at or below 0.80 px (the worst v1 seed), the digit is drawn again on time in at least 82% of the sequences (87% for v1), and the lowest surprise AUROC of the next frame MSE stays at or above 0.95 (0.98 for v1). If not, the blackout gain is paid elsewhere.
+
+**Training.** Seeds 1 and 2 trained without trouble (best checkpoints at steps 15000 and 14500). The loss of seed 0 jumped at step 5090 (gradient norm 1.89, clipped at 1.0) and never came back to its level of step 5000, the checkpoint kept by the fixed rule: that seed had a third of the steps and no learning rate drop, as seed 1 of v1, kept at step 9500. The gate D16 on `val_v1`: 94.1%, 96.8%, and 96.4% below the blank frame (v1: 97.0%, 95.5%, 96.9%).
+
+**Verdict: partly learned.** On the blackout frames of `test_v1`, three seeds pooled, with 95% intervals:
+
+| Model | Probe error on y, open loop | Closed loop | Closed - open | Drawn digit error on y, open (share drawn) | Closed | Decoder correlation, open | Closed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers (v1) | 6.93 [6.07, 7.56] px | 0.73 [0.67, 0.80] px | -6.21 [-6.81, -5.35] | 7.04 px (95%) | 0.23 px | 0.46 | 0.84 |
+| PredNet 5 layers, blackouts | **1.27 [1.03, 1.64] px** | **0.68 [0.66, 0.70] px** | -0.59 [-0.97, -0.35] | **0.35 px (100%)** | 0.23 px | **0.79** | 0.84 |
+| constant velocity Kalman filter | 1.35 px | | | | | | |
+| last seen position | 6.39 px | | | | | | |
+
+Open loop probe error on y (px) per k, on the blackout frames, and on the hidden frames of the occlusion cells:
+
+| Model | Blackout, k = 2 | k = 4 | k = 8 | Occlusion, k = 2 | k = 4 | k = 8 |
+| --- | --- | --- | --- | --- | --- | --- |
+| PredNet 5 layers (v1) | 4.28 | 7.16 | 9.37 | 0.69 | 0.73 | 0.73 |
+| PredNet 5 layers, blackouts | **0.86** | 1.26 | **1.70** | 0.69 | 0.70 | 0.72 |
+| constant velocity Kalman filter | 0.89 | **1.19** | 1.99 | 0.97 | 1.82 | 2.64 |
+
+- 1.27 px lies between the v1 closed loop (0.73 px) and the Kalman filter (1.35 px): partly learned, by the criteria fixed before training. The seeds give 1.66 px (seed 0, kept at step 5000), 1.02 px, and 1.14 px. The interval contains the Kalman filter's 1.35 px: on the probe, the model carries the digit about as well as a constant velocity filter, a little better at k = 8.
+- The state no longer leaves the digit, but it drifts. At k = 8, the probe goes from 0.67 px on the first blackout frame (predicted from visible frames) to 1.03 px on the next and 2.28 px on the last (the Kalman filter, 0.83 px on the second frame and 3.9 px on the last, is better over the first three frames and worse after; v1: 8.2 px on the second frame, then about 11 px). Under the bar it stays near 0.7 px at every k: a blackout still costs the state something that a bar does not.
+- On the pixels, the model does better than its probe reads. In open loop it draws a digit on every blackout frame, 0.35 px from where it is in the frame without the blackout (at k = 8, 0.40 px on the second blackout frame and 0.57 px on the last), close to the closed loop's 0.23 px. The probe and the decoder were fitted on the v1 mix, which has no blackouts. On a black input, the state may sit where the linear probe was never fitted, so the probe may underrate what the state holds. This is not tested (a probe fitted with blackouts would tell), and the criterion stays the probe, as fixed.
+- The hand set closed loop is still better, by 0.59 px [0.35, 0.97]. When the input comes back, over the reappearance frame and the next two, the open loop probe is 1.34 px off (v1 8.15 px, closed loop 0.73 px, Kalman 1.72 px), and the MSE around the digit is 0.0043 (v1 0.0176, closed loop 0.0025).
+
+![Blackout in open and closed loop, with and without blackouts in training](../runs/analysis/test_v1_blackout/closed_loop/blackout.png)
+
+<sub>`test_v1`, blackout with k = 8, three seeds per model: the probe error on y, the drawn digit error on y, the decoder correlation, and the MSE around the digit, in open loop (dotted) and in closed loop over the blackout frames (solid, shaded frames), against the frames since the onset, with the Kalman filter (dashed); bands: standard errors over sequences. Left: v1; right: trained with blackouts (note the y scales).</sub>
+
+**Cost check: passed.** On the occlusion cells, the hidden probe is 0.71 px [0.69, 0.73] (at most 0.80 px required; v1 0.72 [0.64, 0.80]), the digit is drawn again on time in 88% of the sequences (at least 82% required; v1 87%), and the lowest surprise AUROC of the next frame MSE is 0.98 [0.97, 0.99], on vanish BA - A (at least 0.95 required; v1 0.98, on the same pair). The hidden bounce probe (1.02 px for both), the decoder on hidden frames (0.76 against 0.78), and the slope over 12 hidden frames (0.014 against 0.012 px per frame) do not change either. The seeds agree more than those of v1 on the hidden probe (0.69 to 0.73 px, against 0.64 to 0.80).
+
+**A cost outside the check: slower correction after some surprises (RQ2).** This was not in the criteria fixed before training, so it does not change the verdict, but it is the clearest difference with v1 outside the blackouts. The surprising member minus its control, frames 0 to 5 since the reappearance:
+
+| Measure | v1 | Blackouts |
+| --- | --- | --- |
+| Drawn digit latency after `direction`, AB - B (frames) | 2.76 [2.59, 2.94] | 4.16 [4.04, 4.28] |
+| Drawn digit latency after `speed_slow`, AB - B (frames) | 1.50 [1.13, 1.89] | 2.94 [2.65, 3.27] |
+| Mean probe distance after `direction`, AB - B (px) | 15.72 [14.70, 16.93] | 18.64 [17.82, 19.46] |
+| Surprise index of the next frame MSE, `direction` AB - B | 0.00043 [0.00038, 0.00047] | 0.00071 [0.00067, 0.00075] |
+
+- After `direction`, the drawn digit is still not corrected 5 frames after the return in 67% of the AB sequences, against 14% for v1. After `offset`, `early`, `speed_fast`, and `vanish`, the latencies differ by at most 0.3 frames.
+- The surprise signal is larger: higher indices for most kinds, and the hidden bounce now separated from the plain occlusion with an AUROC of 0.91 [0.91, 0.92] (v1 0.79 [0.78, 0.80]). The AUROCs of the surprise kinds stay at 0.98 to 1.00.
+- One reading, not tested: trained to carry the digit through frames that show nothing, the model holds on to its own prediction more against the input. That helps when the input is empty, and slows it when the input is right and the prediction wrong. A percept gate that closes on an empty input and stays open on a surprising one would not have to trade one for the other.
+
+**Limits.** Seed 0 was kept at step 5000 after its loss jumped (a third of the training, no learning rate drop), and it is the worst seed on the blackout (1.66 px); the two other seeds, at 1.02 and 1.14 px, give the same verdict. The readouts were fitted without blackouts (see above). One blackout share (10%) and one loss (masked) were tested; the targets without the blackout, as in Loci-Looped, are coded and were not run. Three of the eleven runs of the project have had a loss explosion; training stability stays background work, to be tested apart from the data changes.
+
+**What it means for Phase 4.** Blackouts in training close most of the open loop gap (from 6.93 to 1.27 px) but not all of it: on the probe, the open loop stays at the level of a constant velocity filter, and the hand set closed loop is still better (0.68 px). By the criteria, this is not a break, so the case does not by itself call for the percept gate of Phase 5; if Phase 4 finds a break elsewhere, this model is the baseline that a gate must beat on blackouts, and the slower correction is a second thing a gate should not make worse. The outputs are in `runs/analysis/test_v1_blackout/` (`python -m scripts.make_results --models blackout`).

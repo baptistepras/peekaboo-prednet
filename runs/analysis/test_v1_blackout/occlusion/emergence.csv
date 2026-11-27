@@ -1,0 +1,217 @@
+condition,measure,who,kind,since_reappear,mean,se,n
+occlusion,exit_ink,PredNet 5 layers,model,-2,0.001987255411222577,0.0017370327414265798,5600
+occlusion,exit_ink,PredNet 5 layers,model,-1,0.36683389544487,0.1369307976148764,5600
+occlusion,exit_ink,PredNet 5 layers,model,0,10.173150062561035,0.24300118046982758,5600
+occlusion,exit_ink,PredNet 5 layers,model,1,27.576013565063477,0.4259651067650565,5600
+occlusion,exit_ink,PredNet 5 layers,model,2,40.60551071166992,0.4394137501276014,5600
+occlusion,exit_ink,PredNet 5 layers,model,3,47.870670318603516,0.2578771789901241,5600
+occlusion,exit_ink,"PredNet 5 layers, blackouts",model,-2,0.0002985621977131814,0.0001808937694560186,5600
+occlusion,exit_ink,"PredNet 5 layers, blackouts",model,-1,0.3052968382835388,0.09153953569125664,5600
+occlusion,exit_ink,"PredNet 5 layers, blackouts",model,0,9.930856704711914,0.2985239970247615,5600
+occlusion,exit_ink,"PredNet 5 layers, blackouts",model,1,27.06486701965332,0.25485635829317393,5600
+occlusion,exit_ink,"PredNet 5 layers, blackouts",model,2,40.27462387084961,0.22115649527578812,5600
+occlusion,exit_ink,"PredNet 5 layers, blackouts",model,3,47.74641418457031,0.09694571110135757,5600
+occlusion,exit_ink,true frame,reference,-2,6.372549250954762e-05,3.684309212368985e-05,5600
+occlusion,exit_ink,true frame,reference,-1,0.11848320066928864,0.0036951764172303723,5600
+occlusion,exit_ink,true frame,reference,0,8.85589599609375,0.0902985431354014,5600
+occlusion,exit_ink,true frame,reference,1,24.72770881652832,0.15766637012843407,5600
+occlusion,exit_ink,true frame,reference,2,38.07131576538086,0.20404334855767248,5600
+occlusion,exit_ink,true frame,reference,3,45.978790283203125,0.21711050750578867,5600
+occlusion,exit_ink,copy,reference,-2,0.0,0.0,5600
+occlusion,exit_ink,copy,reference,-1,6.372549250954762e-05,3.684309212368985e-05,5600
+occlusion,exit_ink,copy,reference,0,0.11848320066928864,0.0036951764172303723,5600
+occlusion,exit_ink,copy,reference,1,8.85589599609375,0.0902985431354014,5600
+occlusion,exit_ink,copy,reference,2,24.72770881652832,0.15766637012843407,5600
+occlusion,exit_ink,copy,reference,3,38.07131576538086,0.20404334855767248,5600
+occlusion,side_share,PredNet 5 layers,model,-2,0.10722918063402176,0.09529452676429656,41
+occlusion,side_share,PredNet 5 layers,model,-1,1.0,0.0,1050
+occlusion,side_share,PredNet 5 layers,model,0,0.9999992251396179,8.344650036736565e-07,5512
+occlusion,side_share,PredNet 5 layers,model,1,0.9999997019767761,3.576278540289152e-07,5600
+occlusion,side_share,PredNet 5 layers,model,2,0.9999998211860657,1.788139270144576e-07,5600
+occlusion,side_share,PredNet 5 layers,model,3,0.9999998211860657,1.1920928741118533e-07,5600
+occlusion,side_share,"PredNet 5 layers, blackouts",model,-2,0.013333332724869251,0.01333333266386411,38
+occlusion,side_share,"PredNet 5 layers, blackouts",model,-1,0.9995868802070618,0.00041306019545940385,1038
+occlusion,side_share,"PredNet 5 layers, blackouts",model,0,0.9999087452888489,9.119511016155009e-05,5535
+occlusion,side_share,"PredNet 5 layers, blackouts",model,1,0.9999558925628662,4.412730445414909e-05,5600
+occlusion,side_share,"PredNet 5 layers, blackouts",model,2,0.9999737739562988,2.626578096413572e-05,5600
+occlusion,side_share,"PredNet 5 layers, blackouts",model,3,0.9999796748161316,2.034505171817563e-05,5600
+occlusion,readout_y,PredNet 5 layers,model,-2,0.3171893358230591,0.0739886077049026,37
+occlusion,readout_y,PredNet 5 layers,model,-1,0.7004860043525696,0.14264680828898352,645
+occlusion,readout_y,PredNet 5 layers,model,0,0.4797901213169098,0.09633448030217259,5512
+occlusion,readout_y,PredNet 5 layers,model,1,0.32995638251304626,0.059824540316028296,5600
+occlusion,readout_y,PredNet 5 layers,model,2,0.21545259654521942,0.03188120899494844,5600
+occlusion,readout_y,PredNet 5 layers,model,3,0.14271749556064606,0.0187852942480929,5600
+occlusion,readout_y,"PredNet 5 layers, blackouts",model,-2,0.47731462121009827,0.15125155489277567,37
+occlusion,readout_y,"PredNet 5 layers, blackouts",model,-1,0.7375343441963196,0.12947403479858893,731
+occlusion,readout_y,"PredNet 5 layers, blackouts",model,0,0.47717395424842834,0.10338755566100014,5535
+occlusion,readout_y,"PredNet 5 layers, blackouts",model,1,0.322591096162796,0.06342063908355007,5600
+occlusion,readout_y,"PredNet 5 layers, blackouts",model,2,0.2158024162054062,0.03532576688231703,5600
+occlusion,readout_y,"PredNet 5 layers, blackouts",model,3,0.14017106592655182,0.0221716902733436,5600
+occlusion,readout_y,copy,reference,-2,2.114182233810425,0.11905201811433616,218
+occlusion,readout_y,copy,reference,-1,4.891805648803711,0.6246016880694666,44
+occlusion,readout_y,copy,reference,0,2.023435115814209,0.048347977738400535,1249
+occlusion,readout_y,copy,reference,1,1.8203588724136353,0.018519254728153665,5600
+occlusion,readout_y,copy,reference,2,1.4141300916671753,0.013606905965915423,5600
+occlusion,readout_y,copy,reference,3,1.2499791383743286,0.01107618709651355,5600
+occlusion,readout_x,PredNet 5 layers,model,-2,0.008018030785024166,0.005715488030349452,37
+occlusion,readout_x,PredNet 5 layers,model,-1,0.08198342472314835,0.03293476202451043,645
+occlusion,readout_x,PredNet 5 layers,model,0,0.10419568419456482,0.02341866881078172,5512
+occlusion,readout_x,PredNet 5 layers,model,1,0.12931375205516815,0.01689222478791361,5600
+occlusion,readout_x,PredNet 5 layers,model,2,0.15726323425769806,0.02077260089445278,5600
+occlusion,readout_x,PredNet 5 layers,model,3,0.13321518898010254,0.018524058401157048,5600
+occlusion,readout_x,"PredNet 5 layers, blackouts",model,-2,0.006142443511635065,0.0023188950748309874,37
+occlusion,readout_x,"PredNet 5 layers, blackouts",model,-1,0.055194418877363205,0.021686851080820788,731
+occlusion,readout_x,"PredNet 5 layers, blackouts",model,0,0.09485691785812378,0.02064590172376863,5535
+occlusion,readout_x,"PredNet 5 layers, blackouts",model,1,0.11970791965723038,0.01409552147711862,5600
+occlusion,readout_x,"PredNet 5 layers, blackouts",model,2,0.14583146572113037,0.015993665743660873,5600
+occlusion,readout_x,"PredNet 5 layers, blackouts",model,3,0.12922076880931854,0.014281748266242126,5600
+occlusion,readout_x,copy,reference,-2,0.8996374607086182,0.065301564485776,218
+occlusion,readout_x,copy,reference,-1,13.484792709350586,0.5789671848246281,44
+occlusion,readout_x,copy,reference,0,0.8438977003097534,0.011274438885083084,1249
+occlusion,readout_x,copy,reference,1,1.3561177253723145,0.008210898959468966,5600
+occlusion,readout_x,copy,reference,2,1.692707896232605,0.012117651415929211,5600
+occlusion,readout_x,copy,reference,3,2.1829521656036377,0.015593985319235795,5600
+occlusion,drawn,PredNet 5 layers,model,-2,0.1318181818181818,0.01837023583785173,220
+occlusion,drawn,PredNet 5 layers,model,-1,0.4120629837203096,0.05591569500022916,1249
+occlusion,drawn,PredNet 5 layers,model,0,0.9817261904761905,0.002296878735901772,5600
+occlusion,drawn,PredNet 5 layers,model,1,1.0,0.0,5600
+occlusion,drawn,PredNet 5 layers,model,2,1.0,0.0,5600
+occlusion,drawn,PredNet 5 layers,model,3,1.0,0.0,5600
+occlusion,drawn,"PredNet 5 layers, blackouts",model,-2,0.1318181818181818,0.01837023583785173,220
+occlusion,drawn,"PredNet 5 layers, blackouts",model,-1,0.4139311449159327,0.09756432399709573,1249
+occlusion,drawn,"PredNet 5 layers, blackouts",model,0,0.9823809523809524,0.0036746010319168047,5600
+occlusion,drawn,"PredNet 5 layers, blackouts",model,1,1.0,0.0,5600
+occlusion,drawn,"PredNet 5 layers, blackouts",model,2,1.0,0.0,5600
+occlusion,drawn,"PredNet 5 layers, blackouts",model,3,1.0,0.0,5600
+occlusion,bar_mse,PredNet 5 layers,model,-2,4.519710273598321e-06,1.9591080673141626e-06,5600
+occlusion,bar_mse,PredNet 5 layers,model,-1,1.4232376997824758e-05,6.140660878003411e-06,5600
+occlusion,bar_mse,PredNet 5 layers,model,0,0.00013277858670335263,3.582506702807954e-05,5600
+occlusion,bar_mse,PredNet 5 layers,model,1,0.000255553430179134,4.896066701072362e-05,5600
+occlusion,bar_mse,PredNet 5 layers,model,2,0.0002517334942240268,4.044814713528295e-05,5600
+occlusion,bar_mse,PredNet 5 layers,model,3,0.00019374133262317628,2.9031912202785656e-05,5600
+occlusion,bar_mse,"PredNet 5 layers, blackouts",model,-2,8.3035147326882e-06,5.537570682983007e-06,5600
+occlusion,bar_mse,"PredNet 5 layers, blackouts",model,-1,1.4889775229676161e-05,8.453210168060059e-06,5600
+occlusion,bar_mse,"PredNet 5 layers, blackouts",model,0,0.0001252560323337093,3.0315511845918823e-05,5600
+occlusion,bar_mse,"PredNet 5 layers, blackouts",model,1,0.00024509039940312505,4.1053487370995044e-05,5600
+occlusion,bar_mse,"PredNet 5 layers, blackouts",model,2,0.00025234444183297455,4.370222372111317e-05,5600
+occlusion,bar_mse,"PredNet 5 layers, blackouts",model,3,0.00020200660219416022,3.867696971287713e-05,5600
+occlusion,bar_mse,copy,reference,-2,0.00014618465502280742,5.376966884352625e-06,5600
+occlusion,bar_mse,copy,reference,-1,3.922953055734979e-06,1.4367765019058741e-07,5600
+occlusion,bar_mse,copy,reference,0,0.000574774167034775,6.698155203220532e-06,5600
+occlusion,bar_mse,copy,reference,1,0.0017062212573364377,1.3128137065342627e-05,5600
+occlusion,bar_mse,copy,reference,2,0.00284220720641315,1.8119053191332836e-05,5600
+occlusion,bar_mse,copy,reference,3,0.0037314780056476593,2.0976614102994795e-05,5600
+occlusion,bar_mse,blank,reference,-2,6.317425800261844e-07,6.002949122241933e-08,5600
+occlusion,bar_mse,blank,reference,-1,3.2912105325522134e-06,1.3016386635368236e-07,5600
+occlusion,bar_mse,blank,reference,0,0.0005831687594763935,6.789525641576975e-06,5600
+occlusion,bar_mse,blank,reference,1,0.0016888199606910348,1.220135187115879e-05,5600
+occlusion,bar_mse,blank,reference,2,0.002607929753139615,1.602616860651804e-05,5600
+occlusion,bar_mse,blank,reference,3,0.0031543374061584473,1.7649444545120086e-05,5600
+hidden_bounce,exit_ink,PredNet 5 layers,model,-2,0.032780829817056656,0.027624000286744166,2400
+hidden_bounce,exit_ink,PredNet 5 layers,model,-1,0.7417241930961609,0.3507966318526346,2400
+hidden_bounce,exit_ink,PredNet 5 layers,model,0,9.996617317199707,0.11273248627029114,2400
+hidden_bounce,exit_ink,PredNet 5 layers,model,1,27.877243041992188,0.582934702684644,2400
+hidden_bounce,exit_ink,PredNet 5 layers,model,2,41.77600860595703,0.5681361156628071,2400
+hidden_bounce,exit_ink,PredNet 5 layers,model,3,48.4587516784668,0.4420740283620656,2400
+hidden_bounce,exit_ink,"PredNet 5 layers, blackouts",model,-2,0.047753628343343735,0.04611296197663578,2400
+hidden_bounce,exit_ink,"PredNet 5 layers, blackouts",model,-1,0.8553842902183533,0.5334011513063818,2400
+hidden_bounce,exit_ink,"PredNet 5 layers, blackouts",model,0,10.043473243713379,0.6393975037163179,2400
+hidden_bounce,exit_ink,"PredNet 5 layers, blackouts",model,1,27.46523094177246,0.21021623223519298,2400
+hidden_bounce,exit_ink,"PredNet 5 layers, blackouts",model,2,40.8777961730957,0.08043042645497689,2400
+hidden_bounce,exit_ink,"PredNet 5 layers, blackouts",model,3,48.178707122802734,0.06967771294387957,2400
+hidden_bounce,exit_ink,true frame,reference,-2,0.0,0.0,2400
+hidden_bounce,exit_ink,true frame,reference,-1,0.09352941811084747,0.0048861887789380335,2400
+hidden_bounce,exit_ink,true frame,reference,0,8.604522705078125,0.13534494922850854,2400
+hidden_bounce,exit_ink,true frame,reference,1,24.790639877319336,0.24038580168658136,2400
+hidden_bounce,exit_ink,true frame,reference,2,38.259498596191406,0.31086667788232003,2400
+hidden_bounce,exit_ink,true frame,reference,3,46.14276123046875,0.33330689008888326,2400
+hidden_bounce,exit_ink,copy,reference,-2,0.0,0.0,2400
+hidden_bounce,exit_ink,copy,reference,-1,0.0,0.0,2400
+hidden_bounce,exit_ink,copy,reference,0,0.09352941811084747,0.0048861887789380335,2400
+hidden_bounce,exit_ink,copy,reference,1,8.604522705078125,0.13534494922850854,2400
+hidden_bounce,exit_ink,copy,reference,2,24.790639877319336,0.24038580168658136,2400
+hidden_bounce,exit_ink,copy,reference,3,38.259498596191406,0.31086667788232003,2400
+hidden_bounce,side_share,PredNet 5 layers,model,-2,1.0,0.0,57
+hidden_bounce,side_share,PredNet 5 layers,model,-1,1.0,0.0,669
+hidden_bounce,side_share,PredNet 5 layers,model,0,1.0,0.0,2358
+hidden_bounce,side_share,PredNet 5 layers,model,1,1.0,0.0,2400
+hidden_bounce,side_share,PredNet 5 layers,model,2,1.0,0.0,2400
+hidden_bounce,side_share,PredNet 5 layers,model,3,1.0,0.0,2400
+hidden_bounce,side_share,"PredNet 5 layers, blackouts",model,-2,1.0,0.0,107
+hidden_bounce,side_share,"PredNet 5 layers, blackouts",model,-1,1.0,0.0,855
+hidden_bounce,side_share,"PredNet 5 layers, blackouts",model,0,1.0,0.0,2340
+hidden_bounce,side_share,"PredNet 5 layers, blackouts",model,1,1.0,0.0,2400
+hidden_bounce,side_share,"PredNet 5 layers, blackouts",model,2,1.0,0.0,2400
+hidden_bounce,side_share,"PredNet 5 layers, blackouts",model,3,1.0,0.0,2400
+hidden_bounce,readout_y,PredNet 5 layers,model,-2,,,0
+hidden_bounce,readout_y,PredNet 5 layers,model,-1,0.9211645126342773,0.2268666213683275,239
+hidden_bounce,readout_y,PredNet 5 layers,model,0,0.685559093952179,0.16371814418228495,2358
+hidden_bounce,readout_y,PredNet 5 layers,model,1,0.4607929289340973,0.08894676668422226,2400
+hidden_bounce,readout_y,PredNet 5 layers,model,2,0.282199889421463,0.046199097109173956,2400
+hidden_bounce,readout_y,PredNet 5 layers,model,3,0.17689764499664307,0.026212474997537333,2400
+hidden_bounce,readout_y,"PredNet 5 layers, blackouts",model,-2,,,0
+hidden_bounce,readout_y,"PredNet 5 layers, blackouts",model,-1,1.004294991493225,0.21214811283367258,269
+hidden_bounce,readout_y,"PredNet 5 layers, blackouts",model,0,0.657243013381958,0.15925682265413946,2340
+hidden_bounce,readout_y,"PredNet 5 layers, blackouts",model,1,0.45172056555747986,0.0938389789547943,2400
+hidden_bounce,readout_y,"PredNet 5 layers, blackouts",model,2,0.27747565507888794,0.0501679247570044,2400
+hidden_bounce,readout_y,"PredNet 5 layers, blackouts",model,3,0.17294184863567352,0.026547201439351756,2400
+hidden_bounce,readout_y,copy,reference,-2,,,0
+hidden_bounce,readout_y,copy,reference,-1,,,0
+hidden_bounce,readout_y,copy,reference,0,2.1733813285827637,0.08290400978236208,451
+hidden_bounce,readout_y,copy,reference,1,1.8421510457992554,0.028792772637590235,2400
+hidden_bounce,readout_y,copy,reference,2,1.4123733043670654,0.02009764130719698,2400
+hidden_bounce,readout_y,copy,reference,3,1.2483912706375122,0.01624233979901275,2400
+hidden_bounce,readout_x,PredNet 5 layers,model,-2,,,0
+hidden_bounce,readout_x,PredNet 5 layers,model,-1,0.16744661331176758,0.07258660614639091,239
+hidden_bounce,readout_x,PredNet 5 layers,model,0,0.18704867362976074,0.03573868556203161,2358
+hidden_bounce,readout_x,PredNet 5 layers,model,1,0.15798592567443848,0.02240159115359076,2400
+hidden_bounce,readout_x,PredNet 5 layers,model,2,0.21849898993968964,0.03473260278092773,2400
+hidden_bounce,readout_x,PredNet 5 layers,model,3,0.18039850890636444,0.030000698040534488,2400
+hidden_bounce,readout_x,"PredNet 5 layers, blackouts",model,-2,,,0
+hidden_bounce,readout_x,"PredNet 5 layers, blackouts",model,-1,0.16899962723255157,0.09501896660696557,269
+hidden_bounce,readout_x,"PredNet 5 layers, blackouts",model,0,0.19036372005939484,0.03720606275699532,2340
+hidden_bounce,readout_x,"PredNet 5 layers, blackouts",model,1,0.15460167825222015,0.015488599377397667,2400
+hidden_bounce,readout_x,"PredNet 5 layers, blackouts",model,2,0.19574563205242157,0.01296091134757745,2400
+hidden_bounce,readout_x,"PredNet 5 layers, blackouts",model,3,0.1708112508058548,0.014648216175445643,2400
+hidden_bounce,readout_x,copy,reference,-2,,,0
+hidden_bounce,readout_x,copy,reference,-1,,,0
+hidden_bounce,readout_x,copy,reference,0,0.8363205790519714,0.01890504696801341,451
+hidden_bounce,readout_x,copy,reference,1,1.4011799097061157,0.01282816195947542,2400
+hidden_bounce,readout_x,copy,reference,2,1.7446640729904175,0.01879604756200982,2400
+hidden_bounce,readout_x,copy,reference,3,2.2595720291137695,0.02431895020369606,2400
+hidden_bounce,drawn,PredNet 5 layers,model,-2,,,0
+hidden_bounce,drawn,PredNet 5 layers,model,-1,0.43163340724316335,0.052099877453295224,451
+hidden_bounce,drawn,PredNet 5 layers,model,0,0.9529166666666667,0.01929456121793376,2400
+hidden_bounce,drawn,PredNet 5 layers,model,1,0.9998611111111111,0.00013888888888886897,2400
+hidden_bounce,drawn,PredNet 5 layers,model,2,1.0,0.0,2400
+hidden_bounce,drawn,PredNet 5 layers,model,3,1.0,0.0,2400
+hidden_bounce,drawn,"PredNet 5 layers, blackouts",model,-2,,,0
+hidden_bounce,drawn,"PredNet 5 layers, blackouts",model,-1,0.43237250554323725,0.09004874743839192,451
+hidden_bounce,drawn,"PredNet 5 layers, blackouts",model,0,0.9568055555555556,0.011995208662803547,2400
+hidden_bounce,drawn,"PredNet 5 layers, blackouts",model,1,1.0,0.0,2400
+hidden_bounce,drawn,"PredNet 5 layers, blackouts",model,2,1.0,0.0,2400
+hidden_bounce,drawn,"PredNet 5 layers, blackouts",model,3,1.0,0.0,2400
+hidden_bounce,bar_mse,PredNet 5 layers,model,-2,8.742895442992449e-05,2.307194350739539e-05,2400
+hidden_bounce,bar_mse,PredNet 5 layers,model,-1,0.00013530919386539608,5.1058064101730114e-05,2400
+hidden_bounce,bar_mse,PredNet 5 layers,model,0,0.0004385806678328663,0.00011256863368836929,2400
+hidden_bounce,bar_mse,PredNet 5 layers,model,1,0.0006534504354931414,0.00013771763832973324,2400
+hidden_bounce,bar_mse,PredNet 5 layers,model,2,0.0006381434504874051,0.00012993505370874985,2400
+hidden_bounce,bar_mse,PredNet 5 layers,model,3,0.0004888224066235125,9.1290677817533e-05,2400
+hidden_bounce,bar_mse,"PredNet 5 layers, blackouts",model,-2,0.000259625754551962,0.00011250818452047505,2400
+hidden_bounce,bar_mse,"PredNet 5 layers, blackouts",model,-1,0.00031315546948462725,0.00010750090143233988,2400
+hidden_bounce,bar_mse,"PredNet 5 layers, blackouts",model,0,0.0006163185462355614,0.00011505412367896425,2400
+hidden_bounce,bar_mse,"PredNet 5 layers, blackouts",model,1,0.0008119074045680463,0.00011520396536199328,2400
+hidden_bounce,bar_mse,"PredNet 5 layers, blackouts",model,2,0.0007940286886878312,0.00010685021801954297,2400
+hidden_bounce,bar_mse,"PredNet 5 layers, blackouts",model,3,0.0006596019957214594,0.00010132077846377367,2400
+hidden_bounce,bar_mse,copy,reference,-2,0.0,0.0,2400
+hidden_bounce,bar_mse,copy,reference,-1,4.087667093699565e-06,2.585638915969368e-07,2400
+hidden_bounce,bar_mse,copy,reference,0,0.0009190250420942903,1.6544005360054376e-05,2400
+hidden_bounce,bar_mse,copy,reference,1,0.002803083276376128,3.245870235713948e-05,2400
+hidden_bounce,bar_mse,copy,reference,2,0.0046965256333351135,4.414825876883189e-05,2400
+hidden_bounce,bar_mse,copy,reference,3,0.006167293060570955,4.884753178814541e-05,2400
+hidden_bounce,bar_mse,blank,reference,-2,0.0,0.0,2400
+hidden_bounce,bar_mse,blank,reference,-1,4.087667093699565e-06,2.585638915969368e-07,2400
+hidden_bounce,bar_mse,blank,reference,0,0.0009297484066337347,1.6713228891812894e-05,2400
+hidden_bounce,bar_mse,blank,reference,1,0.0027568957302719355,2.9461951735193227e-05,2400
+hidden_bounce,bar_mse,blank,reference,2,0.004244028124958277,3.7068963264076513e-05,2400
+hidden_bounce,bar_mse,blank,reference,3,0.005120169837027788,4.0329249907024016e-05,2400

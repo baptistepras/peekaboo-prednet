@@ -78,6 +78,8 @@ htmlcov/
 /runs/analysis/*
 !/runs/analysis/test_v1/
 !/runs/analysis/test_v1/**
+!/runs/analysis/test_v1_blackout/
+!/runs/analysis/test_v1_blackout/**
 
 # macOS
 .DS_Store
