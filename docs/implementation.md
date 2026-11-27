@@ -596,6 +596,10 @@ The results of Phase 3 in one place (step 3.8), as `scripts/make_results.py` wri
 - `HEADLINE` and `headline(folder, models)`: one row per model of the set (in its order, then the Kalman filter), one column per main number of each research question, each read from the table an analysis wrote in `runs/analysis/<set>/` (nothing is recomputed): the probe on the hidden frames of the occlusion and hidden bounce cells, its slope over 12 hidden frames, the share of digits drawn again on time, the drawn digit's latency after `direction` (AB - B), the probe fitted on visible frames only, the blackout probe in open and closed loop, and the lowest AUROC of the next frame MSE over the surprise kinds. `pick(table, where, who)` refuses a selection that matches several rows.
 - `seed_numbers(frames, blackout)` and `seed_table(runs_dir, data, key)`: every seed of a model (the reference model by default), read from its runs: the best step and the validation MSE there and at the last step, the gate D16, and on the set, the probe and the decoder on the hidden frames of the occlusion cells and the probe on the blackout frames in open and closed loop, as means over sequences of one seed (the analyses give the same over the seeds together).
 
+#### `peekaboo/eval/blackout_probe.py`
+
+A check of step 4.1: does the position probe underrate what the state holds on the blackout frames? Every probe was fitted on the v1 mix, without blackouts, and on a black input the state may sit where the probe was never fitted. `probe_mix(data_config)` gives the data config of a probe stream with half of the sequences in blackouts (`BLACKOUT_SHARE`, fixed before the check) and the other conditions in their v1 proportions. `region_rows(rows)` keeps the frames read: the blackout frames of the blackout cells and the hidden frames of the occlusion cells (j = 0 to k - 1 since the onset), and the visible frames of the occlusion cells before the onset. `summarize(rows)` gives, per model, region, k, and probe (the original one and the one fitted with blackouts), one value per sequence and seed, the mean over the seeds with its bootstrap interval, and the mean of each seed. `scripts/check_blackout_probe.py` fits the probe and reads both on every seed of the `blackout` model set.
+
 #### `peekaboo/eval/compare.py`
 
 Comparison of the models of the training sweep, read from the outputs every run already has: its validation log and the reports of the gate, the probes, and the decoder. Nothing is recomputed.
@@ -694,6 +698,7 @@ peekaboo/           the package
     layers.py       inside the state: layers, visible readouts, belief, error units
     closed_loop.py  blackout and closed loop
     results.py      the summary of Phase 3: headline numbers, seeds
+    blackout_probe.py  check of step 4.1: the probe fitted with blackouts
   train/            training
     loop.py         training loop, validation, resume
     sweep.py        training sweep: runs, stages, state, checks
@@ -737,6 +742,7 @@ scripts/            command line entry points
   show_errors.py        error maps of a saved PredNet
   analyze_closed_loop.py  blackout and closed loop (step 3.6)
   make_results.py       every result of Phase 3 from the saved runs (step 3.8)
+  check_blackout_probe.py  probe fitted with blackouts on the blackout frames (step 4.1)
 configs/            one config file per experiment
   data/base.yaml    generator settings
   data/val_v1.yaml  validation set
